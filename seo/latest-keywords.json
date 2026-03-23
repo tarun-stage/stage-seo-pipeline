@@ -1,0 +1,230 @@
+{
+  "generatedAt": "2026-03-23T08:14:37.299Z",
+  "date": "2026-03-23",
+  "stats": {
+    "haryanvi": 10,
+    "rajasthani": 10,
+    "bhojpuri": 10,
+    "gujarati": 10
+  },
+  "keywords": {
+    "haryanvi": [
+      {
+        "query": "naate haryanvi movie",
+        "clicksDelta": 100,
+        "clicksDeltaPct": 556
+      },
+      {
+        "query": "nate haryanvi movie",
+        "clicksDelta": 74,
+        "clicksDeltaPct": 2467
+      },
+      {
+        "query": "haryanvi film naate",
+        "clicksDelta": 38,
+        "clicksDeltaPct": 100
+      },
+      {
+        "query": "naate haryanvi web series cast",
+        "clicksDelta": 38,
+        "clicksDeltaPct": 100
+      },
+      {
+        "query": "haryanvi movie naate",
+        "clicksDelta": 33,
+        "clicksDeltaPct": 100
+      },
+      {
+        "query": "haryanvi stage web series",
+        "clicksDelta": 30,
+        "clicksDeltaPct": 45
+      },
+      {
+        "query": "naate haryanvi",
+        "clicksDelta": 30,
+        "clicksDeltaPct": 750
+      },
+      {
+        "query": "naate haryanvi movie download",
+        "clicksDelta": 26,
+        "clicksDeltaPct": 100
+      },
+      {
+        "query": "stage haryanvi web series",
+        "clicksDelta": 22,
+        "clicksDeltaPct": 138
+      },
+      {
+        "query": "haryanvi movie",
+        "clicksDelta": 19,
+        "clicksDeltaPct": 317
+      }
+    ],
+    "rajasthani": [
+      {
+        "query": "naate rajasthani movie",
+        "clicksDelta": 1685,
+        "clicksDeltaPct": 395
+      },
+      {
+        "query": "naate movie rajasthani",
+        "clicksDelta": 1118,
+        "clicksDeltaPct": 396
+      },
+      {
+        "query": "naate rajasthani movie dailymotion",
+        "clicksDelta": 611,
+        "clicksDeltaPct": 100
+      },
+      {
+        "query": "naat rajasthani movie",
+        "clicksDelta": 431,
+        "clicksDeltaPct": 684
+      },
+      {
+        "query": "naate rajasthani movie download",
+        "clicksDelta": 254,
+        "clicksDeltaPct": 181
+      },
+      {
+        "query": "nate rajasthan movie",
+        "clicksDelta": 216,
+        "clicksDeltaPct": 400
+      },
+      {
+        "query": "rajasthani stage web series",
+        "clicksDelta": 139,
+        "clicksDeltaPct": 36
+      },
+      {
+        "query": "naate rajasthani movie online",
+        "clicksDelta": 118,
+        "clicksDeltaPct": 1073
+      },
+      {
+        "query": "nate movie rajasthani",
+        "clicksDelta": 116,
+        "clicksDeltaPct": 204
+      },
+      {
+        "query": "naate movie rajasthani watch online",
+        "clicksDelta": 115,
+        "clicksDeltaPct": 267
+      }
+    ],
+    "bhojpuri": [
+      {
+        "query": "naate bhojpuri movie",
+        "clicksDelta": 575,
+        "clicksDeltaPct": 2738
+      },
+      {
+        "query": "naat bhojpuri movie",
+        "clicksDelta": 251,
+        "clicksDeltaPct": 2510
+      },
+      {
+        "query": "nate bhojpuri movie",
+        "clicksDelta": 233,
+        "clicksDeltaPct": 210
+      },
+      {
+        "query": "bhojpuri movie download",
+        "clicksDelta": 173,
+        "clicksDeltaPct": 50
+      },
+      {
+        "query": "भोजपुरी फिल्म नाते",
+        "clicksDelta": 110,
+        "clicksDeltaPct": 393
+      },
+      {
+        "query": "filmyfly bhojpuri movie",
+        "clicksDelta": 101,
+        "clicksDeltaPct": 166
+      },
+      {
+        "query": "bhojpuri movie",
+        "clicksDelta": 92,
+        "clicksDeltaPct": 146
+      },
+      {
+        "query": "naat bhojpuri movie download",
+        "clicksDelta": 91,
+        "clicksDeltaPct": 100
+      },
+      {
+        "query": "naate bhojpuri movie download",
+        "clicksDelta": 86,
+        "clicksDeltaPct": 2867
+      },
+      {
+        "query": "madhumati bhojpuri movie",
+        "clicksDelta": 78,
+        "clicksDeltaPct": 100
+      }
+    ],
+    "gujarati": [
+      {
+        "query": "nate gujarati movie",
+        "clicksDelta": 47,
+        "clicksDeltaPct": 100
+      },
+      {
+        "query": "jagat gujarati movie ott",
+        "clicksDelta": 42,
+        "clicksDeltaPct": 40
+      },
+      {
+        "query": "naate gujarati movie",
+        "clicksDelta": 27,
+        "clicksDeltaPct": 900
+      },
+      {
+        "query": "gujarati movie website",
+        "clicksDelta": 15,
+        "clicksDeltaPct": 300
+      },
+      {
+        "query": "gujarati movie nate",
+        "clicksDelta": 10,
+        "clicksDeltaPct": 100
+      },
+      {
+        "query": "stage gujarati web series",
+        "clicksDelta": 10,
+        "clicksDeltaPct": 100
+      },
+      {
+        "query": "31st movie gujarati movie download filmyzilla",
+        "clicksDelta": 9,
+        "clicksDeltaPct": 900
+      },
+      {
+        "query": "jagat movie gujarati watch online",
+        "clicksDelta": 9,
+        "clicksDeltaPct": 100
+      },
+      {
+        "query": "naat gujarati movie",
+        "clicksDelta": 9,
+        "clicksDeltaPct": 100
+      },
+      {
+        "query": "nate movie gujarati",
+        "clicksDelta": 9,
+        "clicksDeltaPct": 100
+      }
+    ]
+  },
+  "integration": {
+    "targetRepo": "vatsanatech/stage-webapp",
+    "targetFile": "src/config/seo-keywords.ts",
+    "pageFile": "src/app/[lang]/[dialect]/page.tsx",
+    "instructions": [
+      "Import getSeoKeywords from @/config/seo-keywords",
+      "In generateMetadata, add: keywords: getSeoKeywords(dialectObj.enum)",
+      "seo-keywords.ts is already updated in the weekly PR — only page.tsx needs patching"
+    ]
+  }
+}
