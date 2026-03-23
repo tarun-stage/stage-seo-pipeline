@@ -22,7 +22,7 @@ jobs:
         working-directory: packages/gsc-keyword-tracker
         run: npm install && npm run build
 
-      - name: Run keyword analysis
+      - name: Fetch keywords from GSC & analyze trends
         id: analyze
         working-directory: packages/gsc-keyword-tracker
         env:
@@ -32,68 +32,31 @@ jobs:
           DATE=$(date +%Y-%m-%d)
           echo "date=${DATE}" >> $GITHUB_OUTPUT
 
-          # Run tracker
+          # Fetch from GSC API and analyze trends
           node dist/cli.js track --site "$GSC_SITE_URL" --db gsc_keywords.db 2>&1 | tee /tmp/output.txt
 
           # Extract stats
           TOTAL=$(grep -oP 'Total keywords: \K[0-9]+' /tmp/output.txt || echo "0")
           RISING=$(grep -oP 'Rising: \K[0-9]+' /tmp/output.txt | head -1 || echo "0")
           NEW_KW=$(grep -oP 'New: \K[0-9]+' /tmp/output.txt | head -1 || echo "0")
-
           echo "total=${TOTAL}" >> $GITHUB_OUTPUT
           echo "rising=${RISING}" >> $GITHUB_OUTPUT
           echo "new_kw=${NEW_KW}" >> $GITHUB_OUTPUT
 
-          # Extract top rising keywords per dialect as JSON
-          node dist/cli.js trends --db gsc_keywords.db --direction rising --limit 20 --format json 2>/dev/null > /tmp/rising.json || true
-          node dist/cli.js trends --db gsc_keywords.db --direction new --limit 10 --format json 2>/dev/null > /tmp/new.json || true
+          # Get top rising per dialect using CLI (reads GSC data already fetched)
+          echo "--- HARYANVI RISING ---" > /tmp/keywords.txt
+          node dist/cli.js trends --db gsc_keywords.db --direction rising --dialect haryanvi --limit 10 2>&1 >> /tmp/keywords.txt
+          echo "--- RAJASTHANI RISING ---" >> /tmp/keywords.txt
+          node dist/cli.js trends --db gsc_keywords.db --direction rising --dialect rajasthani --limit 10 2>&1 >> /tmp/keywords.txt
+          echo "--- BHOJPURI RISING ---" >> /tmp/keywords.txt
+          node dist/cli.js trends --db gsc_keywords.db --direction rising --dialect bhojpuri --limit 10 2>&1 >> /tmp/keywords.txt
+          echo "--- GUJARATI RISING ---" >> /tmp/keywords.txt
+          node dist/cli.js trends --db gsc_keywords.db --direction rising --dialect gujarati --limit 10 2>&1 >> /tmp/keywords.txt
+          echo "--- NEW KEYWORDS ---" >> /tmp/keywords.txt
+          node dist/cli.js trends --db gsc_keywords.db --direction new --limit 15 2>&1 >> /tmp/keywords.txt
 
-          # Build keyword lists per dialect from raw data
-          node -e "
-            const db = require('better-sqlite3')('gsc_keywords.db');
-
-            // Top 10 rising keywords per dialect
-            const dialects = ['haryanvi', 'rajasthani', 'bhojpuri', 'gujarati'];
-            const result = {};
-
-            for (const d of dialects) {
-              const rows = db.prepare(\`
-                SELECT query, clicks_current, clicks_previous,
-                       (clicks_current - clicks_previous) as change
-                FROM keyword_trends
-                WHERE dialect = ? AND direction = 'rising'
-                ORDER BY change DESC LIMIT 10
-              \`).all(d);
-              result[d] = rows.map(r => ({
-                keyword: r.query,
-                clicks: r.clicks_current,
-                change: '+' + r.change
-              }));
-            }
-
-            // Also get general/brand keywords (not content-specific)
-            const brandRows = db.prepare(\`
-              SELECT query, clicks_current
-              FROM keyword_trends
-              WHERE direction = 'rising'
-                AND query NOT LIKE '%movie%'
-                AND query NOT LIKE '%film%'
-                AND query NOT LIKE '%download%'
-                AND query NOT LIKE '%watch%'
-                AND query NOT LIKE '%naate%'
-                AND query NOT LIKE '%nate%'
-              ORDER BY clicks_current DESC LIMIT 10
-            \`).all();
-            result['brand_generic'] = brandRows.map(r => ({
-              keyword: r.query,
-              clicks: r.clicks_current
-            }));
-
-            console.log(JSON.stringify(result, null, 2));
-          " > /tmp/keywords_by_dialect.json 2>/dev/null || echo '{}' > /tmp/keywords_by_dialect.json
-
-          echo "Keywords extracted:"
-          cat /tmp/keywords_by_dialect.json | head -50
+          cat /tmp/keywords.txt
+          echo "Keywords extracted from GSC data"
 
       - name: Create Paperclip issue & wake agent
         env:
@@ -108,42 +71,39 @@ jobs:
           COMPANY_ID="f0a0b0c0-0001-4000-8000-000000000001"
           AGENT_ID="f1000001-0003-4000-8000-000000000001"
 
-          # Read extracted keywords
-          KEYWORDS_JSON=$(cat /tmp/keywords_by_dialect.json)
+          # Read GSC keyword data
+          KEYWORDS_DATA=$(cat /tmp/keywords.txt)
 
-          # Build issue description with ACTUAL keyword data
-          DESCRIPTION=$(node -e "
-            const kw = JSON.parse(process.argv[1]);
-            const lines = [];
-            lines.push('## Weekly Keyword Analysis — ${DATE}');
-            lines.push('');
-            lines.push('Stats: ${TOTAL} total | ${RISING} rising | ${NEW_KW} new');
-            lines.push('');
-            lines.push('## ACTUAL Trending Keywords from GSC (use these EXACTLY, do NOT fabricate)');
-            lines.push('');
+          # Build description
+          read -r -d '' DESCRIPTION << 'DESCEOF' || true
+          ## Weekly Keyword Analysis — DATE_PLACEHOLDER
 
-            for (const [dialect, keywords] of Object.entries(kw)) {
-              if (dialect === 'brand_generic') continue;
-              lines.push('### ' + dialect);
-              keywords.forEach(k => lines.push('- \`' + k.keyword + '\` (clicks: ' + k.clicks + ', ' + k.change + ')'));
-              lines.push('');
-            }
+          Stats: TOTAL_PLACEHOLDER total | RISING_PLACEHOLDER rising | NEW_PLACEHOLDER new
 
-            lines.push('### Brand/Generic keywords (for HOMEPAGE only)');
-            (kw.brand_generic || []).forEach(k => lines.push('- \`' + k.keyword + '\` (clicks: ' + k.clicks + ')'));
-            lines.push('');
-            lines.push('## Instructions');
-            lines.push('');
-            lines.push('1. Create \`src/config/seo-keywords.ts\` using the EXACT keywords listed above');
-            lines.push('2. Homepage (\`src/app/[lang]/[dialect]/page.tsx\`) should ONLY get brand/generic keywords');
-            lines.push('3. Content-specific trending keywords (movies, shows, naate etc) go on content detail pages ONLY');
-            lines.push('4. Create weekly report at \`seo/keyword-analysis/${DATE}.md\` with the same data');
-            lines.push('5. Raise PR to vatsanatech/stage-webapp');
-            lines.push('');
-            lines.push('IMPORTANT: Use ONLY the keywords listed above. Do NOT make up or guess keywords.');
+          ## ACTUAL Trending Keywords from Google Search Console
 
-            console.log(JSON.stringify(lines.join('\n')));
-          " \"\$KEYWORDS_JSON\")
+          KEYWORDS_PLACEHOLDER
+
+          ## Instructions for PR
+
+          1. Create `src/config/seo-keywords.ts` with the EXACT keywords listed above
+          2. **Homepage** (`src/app/[lang]/[dialect]/page.tsx`) → ONLY generic brand keywords (like "stage app", "haryanvi shows online", "rajasthani entertainment"). Do NOT put movie/film/content-specific keywords on homepage
+          3. **Content detail pages** → Put trending content keywords (movies, shows, naate etc) on watch/movies/shows pages ONLY
+          4. Create report at `seo/keyword-analysis/DATE_PLACEHOLDER.md` with same GSC data
+          5. Raise PR to vatsanatech/stage-webapp
+          6. seo-keywords.ts and .md report MUST have the SAME keywords — both from GSC data above
+
+          IMPORTANT: Use ONLY keywords from the GSC data above. Do NOT fabricate or guess keywords.
+          DESCEOF
+
+          DESCRIPTION="${DESCRIPTION//DATE_PLACEHOLDER/$DATE}"
+          DESCRIPTION="${DESCRIPTION//TOTAL_PLACEHOLDER/$TOTAL}"
+          DESCRIPTION="${DESCRIPTION//RISING_PLACEHOLDER/$RISING}"
+          DESCRIPTION="${DESCRIPTION//NEW_PLACEHOLDER/$NEW_KW}"
+          DESCRIPTION="${DESCRIPTION//KEYWORDS_PLACEHOLDER/$KEYWORDS_DATA}"
+
+          # JSON encode the description
+          DESC_JSON=$(node -e "console.log(JSON.stringify(process.argv[1]))" "$DESCRIPTION")
 
           # Create issue
           curl -s -X POST \
@@ -152,7 +112,7 @@ jobs:
             -H "Content-Type: application/json" \
             -d "{
               \"title\": \"Weekly keyword analysis ${DATE} — ${TOTAL} tracked, ${RISING} rising, ${NEW_KW} new\",
-              \"description\": $DESCRIPTION,
+              \"description\": $DESC_JSON,
               \"status\": \"todo\",
               \"priority\": \"high\",
               \"assigneeAgentId\": \"$AGENT_ID\"
