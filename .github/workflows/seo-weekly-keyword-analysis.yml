@@ -159,10 +159,11 @@ jobs:
           git config user.name "Paperclip SEO Agent"
           git add seo/latest-keywords.json
           if ! git diff --staged --quiet; then
+            git pull --rebase origin main || true
             git commit -m "chore(seo): update latest-keywords.json trigger - ${{ steps.track.outputs.date }}
 
             Co-Authored-By: Paperclip <noreply@paperclip.ing>"
-            git push origin main
+            git push origin main || echo "⚠️ Push to main failed (non-critical) — latest-keywords.json not updated"
             echo "✅ latest-keywords.json committed to main"
           else
             echo "ℹ️  No changes to latest-keywords.json"
