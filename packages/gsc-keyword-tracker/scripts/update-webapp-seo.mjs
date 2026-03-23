@@ -65,6 +65,16 @@ function queryDialectKeywords(db, dialect, limit) {
   }));
 }
 
+// ── Static brand/category keywords for dialect home pages ─────────────────────
+// These are stable, non-content-specific keywords appropriate for the dialect
+// landing page (/[lang]/[dialect]/). NOT updated weekly — intentionally generic.
+const HOME_KEYWORDS = {
+  haryanvi:  ['haryanvi shows online', 'watch haryanvi web series', 'haryanvi movies online', 'stage haryanvi', 'haryanvi web series'],
+  rajasthani:['rajasthani shows online', 'watch rajasthani web series', 'rajasthani movies online', 'stage rajasthani', 'rajasthani web series'],
+  bhojpuri:  ['bhojpuri shows online', 'watch bhojpuri web series', 'bhojpuri movies online', 'stage bhojpuri', 'bhojpuri web series'],
+  gujarati:  ['gujarati shows online', 'watch gujarati web series', 'gujarati movies online', 'stage gujarati', 'gujarati web series'],
+};
+
 // ── Write src/config/seo-keywords.ts ─────────────────────────────────────────
 function writeSeoKeywordsConfig(webapp, keywordsByDialect) {
   const outPath = join(webapp, 'src/config/seo-keywords.ts');
@@ -76,13 +86,28 @@ function writeSeoKeywordsConfig(webapp, keywordsByDialect) {
     `// Source: Google Search Console (14-day rolling window)`,
     `// DO NOT EDIT MANUALLY — regenerated weekly by GitHub Actions`,
     `//`,
-    `// Integration: this file is imported by src/app/[lang]/[dialect]/page.tsx`,
-    `// The generateMetadata function should call getSeoKeywords(dialectObj.enum)`,
-    `// and include the result as the 'keywords' field in the returned Metadata object.`,
-    `// See Paperclip issue for full integration instructions.`,
+    `// TWO EXPORTS:`,
+    `//   getHomeKeywords(dialect)    — brand/category keywords for dialect landing pages`,
+    `//   getContentKeywords(dialect) — trending GSC queries for content detail pages`,
+    `//                                 (/[lang]/[dialect]/watch/*, /movies/*, /shows/*)`,
     ``,
-    `export const SEO_TRENDING_KEYWORDS: Record<string, readonly string[]> = {`,
+    `// Brand/category keywords for dialect landing pages.`,
+    `// Stable — not content-specific, appropriate for homepage ranking.`,
+    `const HOME_KEYWORDS: Record<string, readonly string[]> = {`,
   ];
+
+  for (const [dialect, kws] of Object.entries(HOME_KEYWORDS)) {
+    const quoted = kws.map(k => `    ${JSON.stringify(k)}`).join(',\n');
+    lines.push(`  ${dialect}: [`);
+    lines.push(quoted);
+    lines.push(`  ],`);
+  }
+
+  lines.push(`} as const;`);
+  lines.push(``);
+  lines.push(`// Trending GSC search queries updated weekly.`);
+  lines.push(`// Use on content detail pages only — NOT on dialect landing pages.`);
+  lines.push(`const CONTENT_KEYWORDS: Record<string, readonly string[]> = {`);
 
   for (const [dialect, kws] of Object.entries(keywordsByDialect)) {
     const quoted = kws.map(k => `    ${JSON.stringify(k.query)}`).join(',\n');
@@ -94,12 +119,19 @@ function writeSeoKeywordsConfig(webapp, keywordsByDialect) {
   lines.push(`} as const;`);
   lines.push(``);
   lines.push(`/**`);
-  lines.push(` * Returns the top trending GSC keywords for a given dialect.`);
-  lines.push(` * Pass dialectObj.enum (e.g. DialectsEnum.HARYANVI = "haryanvi").`);
+  lines.push(` * Brand/category keywords for dialect landing pages.`);
+  lines.push(` * Use in generateMetadata for /[lang]/[dialect]/page.tsx.`);
   lines.push(` */`);
-  lines.push(`export function getSeoKeywords(dialect: string): string[] {`);
-  lines.push(`  const key = dialect.toLowerCase();`);
-  lines.push(`  return [...(SEO_TRENDING_KEYWORDS[key] ?? [])];`);
+  lines.push(`export function getHomeKeywords(dialect: string): string[] {`);
+  lines.push(`  return [...(HOME_KEYWORDS[dialect.toLowerCase()] ?? [])];`);
+  lines.push(`}`);
+  lines.push(``);
+  lines.push(`/**`);
+  lines.push(` * Top trending GSC search queries for content detail pages.`);
+  lines.push(` * Use in generateMetadata for watch/*, movies/*, shows/* pages only.`);
+  lines.push(` */`);
+  lines.push(`export function getContentKeywords(dialect: string): string[] {`);
+  lines.push(`  return [...(CONTENT_KEYWORDS[dialect.toLowerCase()] ?? [])];`);
   lines.push(`}`);
   lines.push(``);
 
@@ -124,9 +156,10 @@ function writeTriggerFile(pipelineRoot, keywordsByDialect, stats) {
       targetFile: 'src/config/seo-keywords.ts',
       pageFile: 'src/app/[lang]/[dialect]/page.tsx',
       instructions: [
-        'Import getSeoKeywords from @/config/seo-keywords',
-        'In generateMetadata, add: keywords: getSeoKeywords(dialectObj.enum)',
-        'seo-keywords.ts is already updated in the weekly PR — only page.tsx needs patching',
+        'seo-keywords.ts exports TWO functions: getHomeKeywords and getContentKeywords',
+        'Dialect landing page (/[lang]/[dialect]/page.tsx): import getHomeKeywords, use keywords: getHomeKeywords(dialectObj.enum)',
+        'Content detail pages (watch/*, movies/*, shows/*): import getContentKeywords, use keywords: getContentKeywords(dialectObj.enum)',
+        'seo-keywords.ts is already updated in the weekly PR — only page.tsx and content pages need patching',
       ],
     },
   };
