@@ -2,7 +2,7 @@ name: SEO Weekly Keyword Analysis
 
 on:
   schedule:
-    - cron: '0 6 * * 1'  # Every Monday 6 AM UTC
+    - cron: '*/5 * * * *'  # Every 5 min (TESTING — revert to '0 6 * * 1' after)
   workflow_dispatch:
 
 jobs:
