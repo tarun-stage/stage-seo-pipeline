@@ -2,43 +2,28 @@ name: SEO Weekly Keyword Analysis
 
 on:
   schedule:
-    # Run every Monday at 06:00 UTC
-    - cron: '0 6 * * 1'
+    - cron: '0 6 * * 1'  # Every Monday 6 AM UTC
   workflow_dispatch:
-    inputs:
-      dry_run:
-        description: 'Dry run (skip PR creation, just run analysis)'
-        required: false
-        default: 'false'
-        type: boolean
 
 jobs:
   keyword-analysis:
-    name: Run Keyword Analysis & Raise PR to stage-webapp
+    name: Analyze Keywords & Trigger Agent
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 15
 
     steps:
-      - name: Checkout stage-seo-pipeline
-        uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.GH_PAT }}
+      - uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: '20'
 
-      - name: Install gsc-keyword-tracker dependencies
+      - name: Install & Build
         working-directory: packages/gsc-keyword-tracker
-        run: npm install
+        run: npm install && npm run build
 
-      - name: Build gsc-keyword-tracker
-        working-directory: packages/gsc-keyword-tracker
-        run: npm run build
-
-      - name: Run keyword tracking (GSC data fetch + trend analysis)
-        id: track
+      - name: Run keyword analysis
+        id: analyze
         working-directory: packages/gsc-keyword-tracker
         env:
           GSC_SITE_URL: ${{ secrets.GSC_SITE_URL }}
@@ -47,214 +32,47 @@ jobs:
           DATE=$(date +%Y-%m-%d)
           echo "date=${DATE}" >> $GITHUB_OUTPUT
 
-          echo "Running keyword tracker..."
-          node dist/cli.js track --site "$GSC_SITE_URL" --db gsc_keywords.db 2>&1 | tee /tmp/tracker_output.txt
+          node dist/cli.js track --site "$GSC_SITE_URL" --db gsc_keywords.db 2>&1 | tee /tmp/output.txt
 
-          # Extract stats
-          TOTAL=$(grep -oP 'Total keywords: \K[0-9]+' /tmp/tracker_output.txt || echo "0")
-          RISING=$(grep -oP 'Rising: \K[0-9]+' /tmp/tracker_output.txt | head -1 || echo "0")
-          DECLINING=$(grep -oP 'Declining: \K[0-9]+' /tmp/tracker_output.txt | head -1 || echo "0")
-          NEW_KW=$(grep -oP 'New: \K[0-9]+' /tmp/tracker_output.txt | head -1 || echo "0")
-          LOST=$(grep -oP 'Lost: \K[0-9]+' /tmp/tracker_output.txt | head -1 || echo "0")
+          TOTAL=$(grep -oP 'Total keywords: \K[0-9]+' /tmp/output.txt || echo "0")
+          RISING=$(grep -oP 'Rising: \K[0-9]+' /tmp/output.txt | head -1 || echo "0")
+          NEW_KW=$(grep -oP 'New: \K[0-9]+' /tmp/output.txt | head -1 || echo "0")
 
           echo "total=${TOTAL}" >> $GITHUB_OUTPUT
           echo "rising=${RISING}" >> $GITHUB_OUTPUT
-          echo "declining=${DECLINING}" >> $GITHUB_OUTPUT
           echo "new_kw=${NEW_KW}" >> $GITHUB_OUTPUT
-          echo "lost=${LOST}" >> $GITHUB_OUTPUT
+          echo "Summary: Total=${TOTAL} Rising=${RISING} New=${NEW_KW}"
 
-          echo ""
-          echo "=== Summary ==="
-          echo "Total: ${TOTAL} | Rising: ${RISING} | Declining: ${DECLINING} | New: ${NEW_KW} | Lost: ${LOST}"
-
-      - name: Get top rising keywords
-        id: trends
-        working-directory: packages/gsc-keyword-tracker
-        run: |
-          echo "=== Top Rising ==="
-          node dist/cli.js trends --db gsc_keywords.db --direction rising --limit 10 2>&1 | tee /tmp/rising.txt
-
-          echo "=== Top Declining ==="
-          node dist/cli.js trends --db gsc_keywords.db --direction declining --limit 10 2>&1 | tee /tmp/declining.txt
-
-          echo "=== New Keywords ==="
-          node dist/cli.js trends --db gsc_keywords.db --direction new --limit 15 2>&1 | tee /tmp/new_kw.txt
-
-          TOP_RISING=$(grep -oP '↑ \K[^\[]+' /tmp/rising.txt | head -1 | xargs || echo "")
-          echo "top_rising=${TOP_RISING}" >> $GITHUB_OUTPUT
-
-      - name: Analyze and add net-new keywords to SerpBear
-        if: ${{ env.SERPBEAR_URL != '' }}
-        id: serpbear
-        working-directory: packages/gsc-keyword-tracker
-        env:
-          GSC_SITE_URL: ${{ secrets.GSC_SITE_URL }}
-          GSC_SERVICE_ACCOUNT_KEY: ${{ secrets.GSC_SERVICE_ACCOUNT_KEY }}
-          SERPBEAR_URL: ${{ secrets.SERPBEAR_URL }}
-          SERPBEAR_API_KEY: ${{ secrets.SERPBEAR_API_KEY }}
-          SERPBEAR_DOMAIN: ${{ secrets.SERPBEAR_DOMAIN }}
-        run: |
-          echo "Running SerpBear keyword sync..."
-          node dist/cli.js analyze \
-            --site "$GSC_SITE_URL" \
-            --domain "${SERPBEAR_DOMAIN:-stage.in}" \
-            --max 50 \
-            --min-clicks 5 \
-            --db gsc_keywords.db 2>&1 | tee /tmp/analyze_output.txt || true
-
-          ADDED=$(grep -oP 'Added: \K[0-9]+' /tmp/analyze_output.txt || echo "0")
-          echo "serpbear_added=${ADDED}" >> $GITHUB_OUTPUT
-
-      - name: Checkout stage-webapp
-        uses: actions/checkout@v4
-        with:
-          repository: vatsanatech/stage-webapp
-          token: ${{ secrets.GH_PAT }}
-          path: stage-webapp
-
-      - name: Generate seo-keywords.ts data file + latest-keywords.json trigger
-        working-directory: packages/gsc-keyword-tracker
-        run: |
-          echo "Generating seo-keywords.ts and latest-keywords.json..."
-          node scripts/update-webapp-seo.mjs \
-            --db gsc_keywords.db \
-            --webapp ../../stage-webapp \
-            --pipeline-root ../.. \
-            --limit 10
-
-      - name: Generate keyword analysis report
-        run: |
-          DATE=${{ steps.track.outputs.date }}
-          TOTAL=${{ steps.track.outputs.total }}
-          RISING=${{ steps.track.outputs.rising }}
-          DECLINING=${{ steps.track.outputs.declining }}
-          NEW_KW=${{ steps.track.outputs.new_kw }}
-          LOST=${{ steps.track.outputs.lost }}
-          REPORT="stage-webapp/seo/keyword-analysis/${DATE}.md"
-          mkdir -p stage-webapp/seo/keyword-analysis
-
-          # Write report using printf to avoid YAML heredoc indentation issues
-          printf '# Weekly Keyword Analysis — %s\n\n' "${DATE}" > "${REPORT}"
-          printf '**Generated by:** GitHub Actions / gsc-keyword-tracker\n' >> "${REPORT}"
-          printf '**Data source:** Google Search Console (sc-domain:stage.in), 14-day rolling window\n\n' >> "${REPORT}"
-          printf -- '---\n\n## Summary\n\n' >> "${REPORT}"
-          printf '| Metric | Count |\n|--------|-------|\n' >> "${REPORT}"
-          printf '| Total keywords tracked | %s |\n' "${TOTAL}" >> "${REPORT}"
-          printf '| Rising ↑ | %s |\n' "${RISING}" >> "${REPORT}"
-          printf '| Declining ↓ | %s |\n' "${DECLINING}" >> "${REPORT}"
-          printf '| New ★ | %s |\n' "${NEW_KW}" >> "${REPORT}"
-          printf '| Lost ✗ | %s |\n\n' "${LOST}" >> "${REPORT}"
-          printf '## Top Rising Keywords\n\n```\n' >> "${REPORT}"
-          cat /tmp/rising.txt >> "${REPORT}"
-          printf '```\n\n## Top Declining Keywords\n\n```\n' >> "${REPORT}"
-          cat /tmp/declining.txt >> "${REPORT}"
-          printf '```\n\n## New Keywords (First Appearance)\n\n```\n' >> "${REPORT}"
-          cat /tmp/new_kw.txt >> "${REPORT}"
-          printf '```\n\n---\n' >> "${REPORT}"
-          printf '*Generated automatically by [SEO Weekly Keyword Analysis workflow](https://github.com/vatsanatech/stage-seo-pipeline/actions/workflows/seo-weekly-keyword-analysis.yml)*\n' >> "${REPORT}"
-
-      - name: Commit latest-keywords.json to stage-seo-pipeline main
-        run: |
-          git config user.email "paperclip-seo@stage.in"
-          git config user.name "Paperclip SEO Agent"
-          git add seo/latest-keywords.json
-          if ! git diff --staged --quiet; then
-            git pull --rebase origin main || true
-            git commit -m "chore(seo): update latest-keywords.json trigger - ${{ steps.track.outputs.date }}
-
-            Co-Authored-By: Paperclip <noreply@paperclip.ing>"
-            git push origin main || echo "⚠️ Push to main failed (non-critical) — latest-keywords.json not updated"
-            echo "✅ latest-keywords.json committed to main"
-          else
-            echo "ℹ️  No changes to latest-keywords.json"
-          fi
-
-      - name: Trigger Paperclip agent heartbeat
-        if: ${{ github.event.inputs.dry_run != 'true' }}
+      - name: Create Paperclip issue & wake agent
         env:
           PAPERCLIP_API_URL: ${{ secrets.PAPERCLIP_API_URL }}
           PAPERCLIP_API_KEY: ${{ secrets.PAPERCLIP_API_KEY }}
         run: |
-          if [ -z "$PAPERCLIP_API_URL" ]; then
-            echo "PAPERCLIP_API_URL not set — skipping"
-            exit 0
-          fi
-          # Just wake up the agent — it will pick up tasks from its inbox
+          DATE=${{ steps.analyze.outputs.date }}
+          TOTAL=${{ steps.analyze.outputs.total }}
+          RISING=${{ steps.analyze.outputs.rising }}
+          NEW_KW=${{ steps.analyze.outputs.new_kw }}
+
+          COMPANY_ID="f0a0b0c0-0001-4000-8000-000000000001"
+          AGENT_ID="f1000001-0003-4000-8000-000000000001"
+
+          # Create issue in Paperclip
           curl -s -X POST \
-            "$PAPERCLIP_API_URL/api/agents/f1000001-0003-4000-8000-000000000001/wakeup" \
+            "$PAPERCLIP_API_URL/api/companies/$COMPANY_ID/issues" \
             -H "Authorization: Bearer $PAPERCLIP_API_KEY" \
             -H "Content-Type: application/json" \
-            -d '{"reason":"Weekly keyword analysis completed via GitHub Actions"}' \
+            -d "{
+              \"title\": \"Weekly keyword analysis ${DATE} — ${TOTAL} tracked, ${RISING} rising, ${NEW_KW} new\",
+              \"description\": \"GSC keyword analysis completed via GitHub Actions. Run the analyzer, commit keyword data updates, and raise a PR to vatsanatech/stage-webapp with the changes.\",
+              \"status\": \"todo\",
+              \"priority\": \"high\",
+              \"assigneeAgentId\": \"$AGENT_ID\"
+            }" && echo "Issue created" || echo "Issue creation failed (non-critical)"
+
+          # Wake up the agent
+          curl -s -X POST \
+            "$PAPERCLIP_API_URL/api/agents/$AGENT_ID/wakeup" \
+            -H "Authorization: Bearer $PAPERCLIP_API_KEY" \
+            -H "Content-Type: application/json" \
+            -d "{\"reason\": \"Weekly keyword analysis ${DATE} — pick up new task and raise PR\"}" \
             && echo "Agent wakeup sent" || echo "Wakeup failed (non-critical)"
-
-      - name: Create PR to stage-webapp
-        if: ${{ github.event.inputs.dry_run != 'true' }}
-        working-directory: stage-webapp
-        env:
-          GH_TOKEN: ${{ secrets.GH_PAT }}
-        run: |
-          DATE=${{ steps.track.outputs.date }}
-          BRANCH="chore/seo-weekly-keyword-analysis-${DATE}"
-
-          git config user.email "paperclip-seo@stage.in"
-          git config user.name "Paperclip SEO Agent"
-
-          git checkout -b "${BRANCH}"
-
-          # Stage: keyword data file + report (NOT page.tsx — that's handled by AutoFix Deploy Engineer via Paperclip issue)
-          git add seo/keyword-analysis/
-          git add src/config/seo-keywords.ts || true
-
-          git diff --staged --stat
-
-          if git diff --staged --quiet; then
-            echo "No changes to commit — skipping PR"
-            exit 0
-          fi
-
-          git commit -m "chore(seo): weekly keyword analysis - ${DATE}
-
-          - Total keywords tracked: ${{ steps.track.outputs.total }}
-          - Rising: ${{ steps.track.outputs.rising }} | Declining: ${{ steps.track.outputs.declining }}
-          - New: ${{ steps.track.outputs.new_kw }} | Lost: ${{ steps.track.outputs.lost }}
-          - Updated src/config/seo-keywords.ts with top trending keywords per dialect
-          - page.tsx integration will be handled in a separate Paperclip task
-
-          Co-Authored-By: Paperclip <noreply@paperclip.ing>"
-
-          git push origin "${BRANCH}" --force
-
-          # Check if PR already exists before creating
-          EXISTING_PR=$(gh pr list --repo vatsanatech/stage-webapp --head "${BRANCH}" --json number --jq '.[0].number' 2>/dev/null || echo "")
-          if [ -n "$EXISTING_PR" ]; then
-            echo "PR #${EXISTING_PR} already exists for branch ${BRANCH} — skipping creation"
-            exit 0
-          fi
-
-          gh pr create \
-            --repo vatsanatech/stage-webapp \
-            --title "chore(seo): weekly keyword analysis - ${DATE}" \
-            --head "${BRANCH}" \
-            --base main \
-            --body "## Weekly Keyword Analysis — ${DATE}
-
-          Auto-generated by the SEO pipeline. Data from Google Search Console (14-day rolling window).
-
-          ### What's in this PR
-          - \`src/config/seo-keywords.ts\` — top 10 trending keywords per dialect (haryanvi, rajasthani, bhojpuri, gujarati). Updated weekly.
-          - \`seo/keyword-analysis/${DATE}.md\` — full weekly trend report.
-
-          ### Not in this PR — handled separately
-          The \`generateMetadata\` wiring in \`src/app/[lang]/[dialect]/page.tsx\` is handled by the AutoFix Deploy Engineer via a dedicated Paperclip task with full context and type-checking.
-
-          ### Keyword stats
-          | Metric | Count |
-          |--------|-------|
-          | Total keywords | ${{ steps.track.outputs.total }} |
-          | Rising ↑ | ${{ steps.track.outputs.rising }} |
-          | Declining ↓ | ${{ steps.track.outputs.declining }} |
-          | New ★ | ${{ steps.track.outputs.new_kw }} |
-          | Lost ✗ | ${{ steps.track.outputs.lost }} |
-
-          ---
-          _Generated by [SEO Weekly Keyword Analysis](https://github.com/vatsanatech/stage-seo-pipeline/actions/workflows/seo-weekly-keyword-analysis.yml)_"
