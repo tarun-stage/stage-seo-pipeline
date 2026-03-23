@@ -41,9 +41,7 @@ jobs:
           echo "rising=${RISING}" >> $GITHUB_OUTPUT
           echo "new_kw=${NEW_KW}" >> $GITHUB_OUTPUT
 
-          # All rising keywords (all dialects combined)
           node dist/cli.js trends --db gsc_keywords.db --direction rising --limit 50 2>&1 > /tmp/rising.txt
-          # All new keywords
           node dist/cli.js trends --db gsc_keywords.db --direction new --limit 30 2>&1 > /tmp/new.txt
 
           echo "=== RISING ===" > /tmp/all_keywords.txt
@@ -63,8 +61,6 @@ jobs:
           NEW_KW=${{ steps.analyze.outputs.new_kw }}
           COMPANY_ID="f0a0b0c0-0001-4000-8000-000000000001"
           AGENT_ID="f1000001-0003-4000-8000-000000000001"
-
-          KEYWORDS_DATA=$(cat /tmp/all_keywords.txt)
 
           DESC_JSON=$(node -e "
             const date = '${DATE}';
@@ -86,19 +82,21 @@ jobs:
               '',
               '## Your job',
               '',
-              'Update \`src/config/seo-keywords.ts\` in vatsanatech/stage-webapp and raise a PR.',
+              'Update ONLY \`src/config/seo-keywords.ts\` in vatsanatech/stage-webapp and raise a PR.',
+              'Use the existing PR branch \`feature/SEO-70-weekly-keyword-analysis-2026-03-23\` if it exists, otherwise create a new branch.',
               '',
               '### Rules',
               '- Look at each keyword and decide which page(s) it belongs to: homepage (brand), movies, shows, or multiple',
-              '- A keyword CAN go on multiple pages if relevant (e.g. \"naate web series\" → both movies and shows)',
+              '- A keyword CAN go on multiple pages if relevant',
               '- Skip vulgar/adult/inappropriate keywords — do not include them',
               '- Group keywords by dialect (haryanvi, rajasthani, bhojpuri, gujarati)',
               '- Homepage only gets brand/generic keywords (stage app, stage ott, etc)',
               '- Use the EXACT keywords from GSC data above, do not fabricate',
-              '- ONLY update src/config/seo-keywords.ts — no other files, no docs, no .md reports',
-              '- Do NOT add any markdown/report files to the PR',
+              '- ONLY update src/config/seo-keywords.ts — NO other files',
+              '- Do NOT add any markdown, docs, or report files to the PR',
+              '- Do NOT modify page.tsx files — they already import from seo-keywords.ts',
               '',
-              '### File structure to follow',
+              '### File structure (already exists, just update the keyword arrays)',
               '```typescript',
               'const KEYWORDS: Record<string, { brand: string[]; movies: string[]; shows: string[] }> = {',
               '  haryanvi: { brand: [...], movies: [...], shows: [...] },',
@@ -107,29 +105,17 @@ jobs:
               '};',
               '```',
               '',
-              '### After PR is raised — notify on Slack',
-              'Once PR is created, send a Slack message using the SLACK_WEBHOOK_URL env var:',
+              '### After PR is raised — Slack notification',
+              'After creating the PR, use curl to post to Slack via SLACK_WEBHOOK_URL env var:',
               '',
-              '```bash',
-              'PR_URL=\"<your PR url>\"',
-              'DATE=\"' + date + '\"',
-              '',
-              '# First message — starts the thread',
-              'curl -X POST \"$SLACK_WEBHOOK_URL\" -H \"Content-Type: application/json\" -d \\'',
-              '{',
-              '  \"text\": \"*SEO Keywords Automation ' + date + '*\\nHi <@U01HQJZ3VLH>, please review this automated keywords PR: ${PR_URL}\"',
-              '}',
-              '\\'',
-              '',
-              '# Second message in same webhook — top keywords for verification',
-              'curl -X POST \"$SLACK_WEBHOOK_URL\" -H \"Content-Type: application/json\" -d \\'',
-              '{',
-              '  \"text\": \"*Top trending keywords this week:*\\n<paste top 10 rising keywords here>\"',
-              '}',
-              '\\'',
+              'Post a single message with this format:',
               '```',
-              '',
-              'Replace <@U01HQJZ3VLH> is Tarun Sahnan. Include actual top 10 keywords from the GSC data above.',
+              'curl -X POST \"$SLACK_WEBHOOK_URL\" \\\\',
+              '  -H \"Content-Type: application/json\" \\\\',
+              '  -d \\'{\"text\": \"*SEO Keywords Automation ' + date + '*\\\\nHi @Tarun Sahnan, please review this automated keywords PR: <PR_URL>\\\\n\\\\n*Top 10 trending keywords:*\\\\n1. keyword1\\\\n2. keyword2\\\\n...\"}\\' ',
+              '```',
+              'Replace <PR_URL> with actual PR link. Include top 10 rising keywords with clicks and % change.',
+              'IMPORTANT: Tag Tarun by name in the message text.',
             ].join('\\n');
 
             console.log(JSON.stringify(desc));
