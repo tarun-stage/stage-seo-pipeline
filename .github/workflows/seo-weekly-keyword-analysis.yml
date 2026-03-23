@@ -112,7 +112,7 @@ jobs:
               '```',
               'curl -X POST \"$SLACK_WEBHOOK_URL\" \\\\',
               '  -H \"Content-Type: application/json\" \\\\',
-              '  -d \\'{\"text\": \"*SEO Keywords Automation ' + date + '*\\\\nHi @Tarun Sahnan, please review this automated keywords PR: <PR_URL>\\\\n\\\\n*Top 10 trending keywords:*\\\\n1. keyword1\\\\n2. keyword2\\\\n...\"}\\' ',
+              '  -d \\'{\"text\": \"*SEO Keywords Automation ' + date + '*\\\\nHi <@U07A91AB7GW>, please review this automated keywords PR: <PR_URL>\\\\n\\\\n*Top 10 trending keywords:*\\\\n1. keyword1\\\\n2. keyword2\\\\n...\"}\\' ',
               '```',
               'Replace <PR_URL> with actual PR link. Include top 10 rising keywords with clicks and % change.',
               'IMPORTANT: Tag Tarun by name in the message text.',
