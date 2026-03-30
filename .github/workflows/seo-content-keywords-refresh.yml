@@ -1,0 +1,80 @@
+name: SEO Content Keywords Refresh
+
+on:
+  schedule:
+    - cron: '30 4 */2 * *'  # Every alternate day 10:00 AM IST (4:30 AM UTC)
+  workflow_dispatch:
+
+jobs:
+  content-keywords-refresh:
+    name: Refresh Content SEO Keywords
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Create Paperclip task & wake agent
+        env:
+          PAPERCLIP_API_URL: ${{ secrets.PAPERCLIP_API_URL }}
+          PAPERCLIP_API_KEY: ${{ secrets.PAPERCLIP_API_KEY }}
+        run: |
+          DATE=$(date +%Y-%m-%d)
+          COMPANY_ID="f0a0b0c0-0001-4000-8000-000000000001"
+          AGENT_ID="f1000001-0002-4000-8000-000000000001"
+
+          DESC_JSON=$(node -e "
+            const date = '${DATE}';
+            const desc = [
+              '## Content SEO Keywords Refresh — ' + date,
+              '',
+              '### What',
+              'Refresh AI-generated SEO keywords for all published content on stage.in.',
+              'Keywords are generated per-content using NeoRouter (LLM) and stored in MongoDB.',
+              '',
+              '### Step 1: Trigger refresh',
+              'Call the backend refresh-all endpoint:',
+              '',
+              '\`\`\`bash',
+              'curl -X POST \"\$NEST_BACKEND_URL/contents/seo-keywords/refresh-all\" \\\\',
+              '  -H \"Content-Type: application/json\" \\\\',
+              '  -H \"x-api-key: \$NEST_BACKEND_API_KEY\"',
+              '\`\`\`',
+              '',
+              'Use NEST_BACKEND_URL and NEST_BACKEND_API_KEY from environment variables.',
+              '',
+              '### Step 2: Collect stats',
+              'The endpoint returns JSON with refresh stats:',
+              '\`\`\`json',
+              '{ \"total\": 150, \"refreshed\": 148, \"failed\": 2 }',
+              '\`\`\`',
+              '',
+              '### Step 3: Slack notification',
+              'After refresh completes, send Slack message via SLACK_WEBHOOK_URL:',
+              '',
+              'curl -X POST \"\$SLACK_WEBHOOK_URL\" -H \"Content-Type: application/json\" -d \\'{\"text\": \"*SEO Content Keywords Refresh — ' + date + '*\\\\nHi <@U07A91AB7GW>, content keywords refresh completed.\\\\n\\\\n*Total:* <total> | *Refreshed:* <refreshed> | *Failed:* <failed>\"}\\' ',
+              '',
+              'CRITICAL: Use <@U07A91AB7GW> exactly as written for Slack mention.',
+              '',
+              '### Step 4: Report failures',
+              'If any content failed to refresh, comment on this issue with the failure details.',
+            ].join('\\n');
+            console.log(JSON.stringify(desc));
+          ")
+
+          curl -s -X POST \
+            "$PAPERCLIP_API_URL/api/companies/$COMPANY_ID/issues" \
+            -H "Authorization: Bearer $PAPERCLIP_API_KEY" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"title\": \"Content Keywords Refresh — ${DATE}\",
+              \"description\": $DESC_JSON,
+              \"status\": \"todo\",
+              \"priority\": \"high\",
+              \"assigneeAgentId\": \"$AGENT_ID\"
+            }" && echo "Refresh issue created" || echo "Issue creation failed"
+
+          curl -s -X POST \
+            "$PAPERCLIP_API_URL/api/agents/$AGENT_ID/wakeup" \
+            -H "Authorization: Bearer $PAPERCLIP_API_KEY" \
+            -H "Content-Type: application/json" \
+            -d "{\"reason\": \"Content Keywords Refresh ${DATE}\"}" \
+            && echo "Agent wakeup sent" || echo "Wakeup failed"
