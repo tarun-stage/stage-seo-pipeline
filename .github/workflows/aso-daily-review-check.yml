@@ -22,6 +22,7 @@ jobs:
         env:
           PAPERCLIP_API_URL: ${{ secrets.PAPERCLIP_API_URL }}
           PAPERCLIP_API_KEY: ${{ secrets.PAPERCLIP_ASO_API_KEY }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
         run: |
           node << 'SCRIPT'
           const { google } = require('googleapis');
@@ -176,6 +177,28 @@ jobs:
               });
               req.on('error', e => { console.log('Wakeup error (non-fatal):', e.message); resolve(); });
               req.write(wakePayload);
+              req.end();
+            });
+
+            // Slack notification
+            const slackText = hasProblem
+              ? `*ASO Alert — ${date}* ⚠️\n${badReviews.length > 0 ? `• ${badReviews.length} negative review(s) need reply\n` : ''}${hasDrop ? `• Rating drop: ${trendLine}\n` : ''}• CEO agent wakup kiya gaya — Paperclip check karo`
+              : `*ASO Daily Check — ${date}* ✅\n• ${trendLine}\n• Koi nayi negative review nahi`;
+
+            const slackPayload = JSON.stringify({ text: slackText });
+            const slackUrl = new URL(process.env.SLACK_WEBHOOK_URL);
+            await new Promise((resolve) => {
+              const req = https.request({
+                hostname: slackUrl.hostname,
+                path: slackUrl.pathname,
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(slackPayload) },
+              }, res => {
+                res.on('data', () => {});
+                res.on('end', () => { console.log(`Slack [${res.statusCode}]`); resolve(); });
+              });
+              req.on('error', e => { console.log('Slack error (non-fatal):', e.message); resolve(); });
+              req.write(slackPayload);
               req.end();
             });
 
