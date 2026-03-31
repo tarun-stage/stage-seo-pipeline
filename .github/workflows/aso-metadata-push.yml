@@ -39,7 +39,10 @@ jobs:
       - name: Write Play Store key to file
         env:
           PLAY_STORE_JSON_KEY: ${{ secrets.PLAY_STORE_JSON_KEY }}
-        run: echo "$PLAY_STORE_JSON_KEY" > /tmp/play-store-key.json
+        run: node -e "require('fs').writeFileSync('/tmp/play-store-key.json', process.env.PLAY_STORE_JSON_KEY)"
+
+      - name: Verify JSON file
+        run: node -e "JSON.parse(require('fs').readFileSync('/tmp/play-store-key.json','utf8')); console.log('JSON valid, size:', require('fs').statSync('/tmp/play-store-key.json').size)"
 
       - name: Push Android metadata to Play Store
         working-directory: aso
