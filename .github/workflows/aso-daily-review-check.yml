@@ -181,9 +181,37 @@ jobs:
             });
 
             // Slack notification
+            const reviewLines = badReviews.slice(0, 5).map(r => {
+              const c = r.comments[0].userComment;
+              return `  ${'⭐'.repeat(c.starRating)} — "${(c.text || '').slice(0, 100).replace(/\n/g,' ')}"`;
+            }).join('\n');
+
             const slackText = hasProblem
-              ? `*ASO Alert — ${date}* ⚠️\n${badReviews.length > 0 ? `• ${badReviews.length} negative review(s) need reply\n` : ''}${hasDrop ? `• Rating drop: ${trendLine}\n` : ''}• CEO agent wakup kiya gaya — Paperclip check karo`
-              : `*ASO Daily Check — ${date}* ✅\n• ${trendLine}\n• Koi nayi negative review nahi`;
+              ? [
+                  `*ASO Daily Review Alert — ${date}* ⚠️`,
+                  `*Package:* in.stage (Google Play)`,
+                  ``,
+                  `*Rating Trend (7-day)*`,
+                  `• This week: ${thisWeekAvg || 'N/A'} ⭐ | Last week: ${lastWeekAvg || 'N/A'} ⭐`,
+                  `• ${trendLine}`,
+                  ``,
+                  `*Negative Reviews (last 24h, no reply): ${badReviews.length}*`,
+                  reviewLines || '  None',
+                  ``,
+                  `*Action:* CEO agent has been notified via Paperclip to reply to these reviews.`,
+                  `*Triggered by:* GitHub Actions (scheduled)`
+                ].join('\n')
+              : [
+                  `*ASO Daily Review Check — ${date}* ✅`,
+                  `*Package:* in.stage (Google Play)`,
+                  ``,
+                  `*Rating Trend (7-day)*`,
+                  `• This week: ${thisWeekAvg || 'N/A'} ⭐ | Last week: ${lastWeekAvg || 'N/A'} ⭐`,
+                  `• ${trendLine}`,
+                  ``,
+                  `*Negative Reviews (last 24h):* None — no action needed`,
+                  `*Triggered by:* GitHub Actions (scheduled)`
+                ].join('\n');
 
             const slackPayload = JSON.stringify({ text: slackText });
             const slackUrl = new URL(process.env.SLACK_WEBHOOK_URL);
