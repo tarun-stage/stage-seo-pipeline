@@ -1,0 +1,61 @@
+name: ASO Metadata Push
+
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: 'Platform to push'
+        required: true
+        default: 'android'
+        type: choice
+        options:
+          - android
+          - ios
+          - both
+
+jobs:
+  push-android:
+    name: Push Android Metadata
+    runs-on: ubuntu-latest
+    if: ${{ inputs.platform == 'android' || inputs.platform == 'both' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.2'
+          bundler-cache: false
+
+      - name: Install Fastlane
+        run: gem install fastlane -N
+
+      - name: Push Android metadata to Play Store
+        working-directory: aso
+        env:
+          SUPPLY_JSON_KEY_DATA: ${{ secrets.PLAY_STORE_JSON_KEY }}
+        run: |
+          fastlane android update_metadata
+
+  push-ios:
+    name: Push iOS Metadata
+    runs-on: ubuntu-latest
+    if: ${{ inputs.platform == 'ios' || inputs.platform == 'both' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.2'
+          bundler-cache: false
+
+      - name: Install Fastlane
+        run: gem install fastlane -N
+
+      - name: Push iOS metadata to App Store Connect
+        working-directory: aso
+        env:
+          APP_STORE_CONNECT_API_KEY_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          APP_STORE_CONNECT_API_KEY_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          APP_STORE_CONNECT_API_KEY_KEY: ${{ secrets.ASC_PRIVATE_KEY }}
+        run: |
+          fastlane ios update_metadata
