@@ -170,6 +170,28 @@ Current variants (pick by week index):
 
 Update `metadata/ios/en-US/promotional_text.txt` with the week's variant.
 
+
+### ASO Auditor (runs every 12 hours)
+Audit ASO metadata quality and alert CEO if issues found.
+
+**Checks to run:**
+1. **Character limits** — verify all fields are within limits:
+   - iOS name ≤ 30, subtitle ≤ 30, keywords ≤ 100, promo text ≤ 170
+   - Android title ≤ 50, short description ≤ 80
+2. **Keyword coverage** — ensure core keywords present: haryanvi, rajasthani, bhojpuri, ott
+3. **Competitor gap** — check if MX Player, JioCinema, Zee5 rank for keywords we're missing
+   - Search DuckDuckGo for "haryanvi web series app" and note top competitor keywords
+4. **Metadata staleness** — flag if metadata hasn't changed in 30+ days
+
+**If issues found**, post to Slack:
+```bash
+curl -s -X POST "${SLACK_WEBHOOK_URL}" \
+  -H "Content-Type: application/json" \
+  -d "{\"text\": \"*ASO Audit Alert* :warning:\n[issue description]\nAction needed: @ASO CEO\"}"
+```
+
+**If everything is healthy**, just log to `scripts/audit_log/YYYY-MM-DD.json` — no Slack noise.
+
 ### Rank Tracker (runs weekly)
 Track keyword rankings. Log results to `scripts/rank_data/YYYY-MM-DD.json`.
 
