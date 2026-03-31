@@ -1,0 +1,9 @@
+# iOS
+app_identifier("in.stageflutter")
+apple_id(ENV["APPLE_ID"] || "your-apple-id@stage.in")
+team_id(ENV["TEAM_ID"] || "XXXXXXXXXX")
+itc_team_id(ENV["ITC_TEAM_ID"] || "XXXXXXXXXX")
+
+# Android
+json_key_file(ENV["PLAY_STORE_KEY_PATH"] || "path/to/play-store-key.json")
+package_name("in.stage")

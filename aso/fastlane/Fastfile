@@ -1,0 +1,40 @@
+default_platform(:ios)
+
+platform :ios do
+  desc "Push iOS metadata to App Store Connect (no binary)"
+  lane :update_metadata do
+    deliver(
+      skip_binary_upload: true,
+      skip_screenshots: true,
+      metadata_path: "./metadata/ios/en-US",
+      force: true,
+      precheck_include_in_app_purchases: false,
+      app_identifier: "in.stageflutter"
+    )
+  end
+
+  desc "Update only promotional text (no review needed)"
+  lane :update_promo_text do
+    deliver(
+      skip_binary_upload: true,
+      skip_screenshots: true,
+      skip_metadata: false,
+      metadata_path: "./metadata/ios/en-US",
+      force: true,
+      app_identifier: "in.stageflutter"
+    )
+  end
+end
+
+platform :android do
+  desc "Push Android metadata to Play Store (no APK)"
+  lane :update_metadata do
+    supply(
+      skip_upload_apk: true,
+      skip_upload_aab: true,
+      skip_upload_screenshots: true,
+      metadata_path: "./metadata/android/en-US",
+      package_name: "in.stage"
+    )
+  end
+end
