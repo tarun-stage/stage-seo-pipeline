@@ -1,12 +1,17 @@
 name: ASO Metadata Push
 
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'aso/metadata/**'
   workflow_dispatch:
     inputs:
       platform:
         description: 'Platform to push'
         required: true
-        default: 'android'
+        default: 'both'
         type: choice
         options:
           - android
@@ -15,9 +20,11 @@ on:
 
 jobs:
   push-android:
-    name: Push Android Metadata
+    name: Push Android Metadata to Play Store
     runs-on: ubuntu-latest
-    if: ${{ inputs.platform == 'android' || inputs.platform == 'both' }}
+    if: |
+      github.event_name == 'workflow_dispatch' && (inputs.platform == 'android' || inputs.platform == 'both') ||
+      github.event_name == 'push'
     steps:
       - uses: actions/checkout@v4
 
@@ -33,13 +40,27 @@ jobs:
         working-directory: aso
         env:
           SUPPLY_JSON_KEY_DATA: ${{ secrets.PLAY_STORE_JSON_KEY }}
+        run: fastlane android update_metadata
+
+      - name: Notify Slack on success
+        if: success()
         run: |
-          fastlane android update_metadata
+          curl -s -X POST "${{ secrets.SLACK_WEBHOOK_URL }}" \
+            -H "Content-Type: application/json" \
+            -d "{\"text\": \"*ASO Android metadata pushed to Play Store* ✅\nTriggered by: ${{ github.actor }} — ${{ github.event.head_commit.message }}\"}"
+
+      - name: Notify Slack on failure
+        if: failure()
+        run: |
+          curl -s -X POST "${{ secrets.SLACK_WEBHOOK_URL }}" \
+            -H "Content-Type: application/json" \
+            -d "{\"text\": \"*ASO Android metadata push FAILED* ❌\nCheck: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"}"
 
   push-ios:
-    name: Push iOS Metadata
+    name: Push iOS Metadata to App Store
     runs-on: ubuntu-latest
-    if: ${{ inputs.platform == 'ios' || inputs.platform == 'both' }}
+    if: |
+      github.event_name == 'workflow_dispatch' && (inputs.platform == 'ios' || inputs.platform == 'both')
     steps:
       - uses: actions/checkout@v4
 
@@ -57,5 +78,4 @@ jobs:
           APP_STORE_CONNECT_API_KEY_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           APP_STORE_CONNECT_API_KEY_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
           APP_STORE_CONNECT_API_KEY_KEY: ${{ secrets.ASC_PRIVATE_KEY }}
-        run: |
-          fastlane ios update_metadata
+        run: fastlane ios update_metadata
