@@ -1,0 +1,162 @@
+name: ASO Daily Review Check
+
+on:
+  schedule:
+    - cron: '30 4 * * *'  # Daily 10:00 AM IST (4:30 AM UTC)
+  workflow_dispatch:
+
+jobs:
+  check-reviews:
+    name: Fetch Reviews & Create CEO Task
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Write Play Store key
+        run: echo "${{ secrets.PLAY_STORE_JSON_KEY_B64 }}" | base64 -d > /tmp/play-store-key.json
+
+      - name: Install googleapis
+        run: npm install googleapis
+
+      - name: Fetch reviews & create Paperclip issue for CEO
+        env:
+          PAPERCLIP_API_URL: ${{ secrets.PAPERCLIP_API_URL }}
+          PAPERCLIP_API_KEY: ${{ secrets.PAPERCLIP_API_KEY }}
+        run: |
+          node << 'SCRIPT'
+          const { google } = require('googleapis');
+          const fs = require('fs');
+          const https = require('https');
+          const http = require('http');
+
+          async function main() {
+            const credentials = JSON.parse(fs.readFileSync('/tmp/play-store-key.json', 'utf8'));
+            const auth = new google.auth.GoogleAuth({
+              credentials,
+              scopes: ['https://www.googleapis.com/auth/androidpublisher'],
+            });
+
+            const androidpublisher = google.androidpublisher({ version: 'v3', auth });
+            const PACKAGE = 'in.stage';
+
+            const res = await androidpublisher.reviews.list({ packageName: PACKAGE, maxResults: 100 });
+            const reviews = res.data.reviews || [];
+
+            const now = Date.now();
+            const yesterday = now - 24 * 60 * 60 * 1000;
+            const sevenDaysAgo = now - 7 * 24 * 60 * 60 * 1000;
+            const fourteenDaysAgo = now - 14 * 24 * 60 * 60 * 1000;
+
+            // Bad reviews last 24h without a developer reply
+            const badReviews = reviews.filter(r => {
+              const comment = r.comments && r.comments[0] && r.comments[0].userComment;
+              if (!comment) return false;
+              const ts = parseInt((comment.lastModified && comment.lastModified.seconds) || '0') * 1000;
+              const hasReply = r.comments && r.comments.some(c => c.developerComment);
+              return comment.starRating <= 3 && ts >= yesterday && !hasReply;
+            });
+
+            // Rating trend: this week vs last week
+            const ratingInWindow = (from, to) => {
+              const subset = reviews.filter(r => {
+                const comment = r.comments && r.comments[0] && r.comments[0].userComment;
+                if (!comment) return false;
+                const ts = parseInt((comment.lastModified && comment.lastModified.seconds) || '0') * 1000;
+                return ts >= from && ts < to;
+              });
+              if (!subset.length) return null;
+              const sum = subset.reduce((s, r) => s + (r.comments[0].userComment.starRating || 0), 0);
+              return (sum / subset.length).toFixed(2);
+            };
+
+            const thisWeekAvg = ratingInWindow(sevenDaysAgo, now);
+            const lastWeekAvg = ratingInWindow(fourteenDaysAgo, sevenDaysAgo);
+            const drop = (thisWeekAvg && lastWeekAvg) ? (parseFloat(lastWeekAvg) - parseFloat(thisWeekAvg)).toFixed(2) : null;
+            const hasDrop = drop !== null && parseFloat(drop) > 0.1;
+
+            const trendLine = !thisWeekAvg ? 'Insufficient data'
+              : !lastWeekAvg ? `This week: ${thisWeekAvg} ⭐ (no prior week data)`
+              : hasDrop ? `⬇️ DROP ${drop} stars: ${lastWeekAvg} → ${thisWeekAvg}`
+              : parseFloat(drop) < -0.1 ? `⬆️ IMPROVED ${Math.abs(drop)} stars: ${lastWeekAvg} → ${thisWeekAvg}`
+              : `➡️ Stable: ${thisWeekAvg} ⭐`;
+
+            const date = new Date().toISOString().split('T')[0];
+            const hasProblem = badReviews.length > 0 || hasDrop;
+            const priority = hasProblem ? 'high' : 'low';
+
+            let title = hasProblem
+              ? `[ASO Alert] ${badReviews.length} negative reviews${hasDrop ? `, rating drop detected` : ''} — ${date}`
+              : `[ASO] Daily Review Check — All clear ✅ ${date}`;
+
+            let body = `## ASO Daily Review Report — ${date}\n\n`;
+            body += `### Rating Trend\n`;
+            body += `- ${trendLine}\n`;
+            body += `- This week avg: **${thisWeekAvg || 'N/A'}** | Last week avg: **${lastWeekAvg || 'N/A'}**\n\n`;
+
+            body += `### Negative Reviews (last 24h, no reply): ${badReviews.length}\n\n`;
+            if (badReviews.length > 0) {
+              badReviews.slice(0, 15).forEach(r => {
+                const c = r.comments[0].userComment;
+                const stars = c.starRating;
+                const text = (c.text || '(no text)').slice(0, 200).replace(/\n/g, ' ');
+                body += `**${stars}/5 ⭐** — "${text}"\n\n`;
+              });
+              body += `### What to do\n`;
+              body += `1. Run \`node /paperclip/stage-seo-pipeline/aso/scripts/review_responder.js\` to auto-reply Hinglish\n`;
+              body += `2. Note common complaints for metadata/keyword updates\n`;
+            } else {
+              body += `_No new negative reviews in last 24h_ ✅\n\n`;
+            }
+
+            if (hasDrop) {
+              body += `\n### ⚠️ Rating Drop Alert\n`;
+              body += `Rating dropped ${drop} stars compared to last week. Investigate common issues in negative reviews and consider updating store description to address them.\n`;
+            }
+
+            body += `\n---\n_Generated by ASO Daily Review Check workflow_`;
+
+            // POST to Paperclip
+            const apiBase = process.env.PAPERCLIP_API_URL.replace(/\/$/, '');
+            const COMPANY_ID = '03319c0f-9679-474a-90e2-7004053fdef2';
+            const CEO_AGENT_ID = 'b4802fc6-f46a-443f-a5a9-86028686b5fc';
+
+            const payload = JSON.stringify({
+              title,
+              description: body,
+              priority,
+              assigneeAgentId: CEO_AGENT_ID,
+            });
+
+            const url = new URL(`${apiBase}/api/companies/${COMPANY_ID}/issues`);
+            const isHttps = url.protocol === 'https:';
+            const client = isHttps ? https : http;
+
+            await new Promise((resolve, reject) => {
+              const req = client.request({
+                hostname: url.hostname,
+                port: url.port || (isHttps ? 443 : 80),
+                path: url.pathname + url.search,
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'x-paperclip-api-key': process.env.PAPERCLIP_API_KEY,
+                  'Content-Length': Buffer.byteLength(payload),
+                },
+              }, res => {
+                let data = '';
+                res.on('data', d => data += d);
+                res.on('end', () => {
+                  console.log(`Paperclip response [${res.statusCode}]:`, data.slice(0, 300));
+                  resolve();
+                });
+              });
+              req.on('error', reject);
+              req.write(payload);
+              req.end();
+            });
+
+            console.log(`Done — bad reviews: ${badReviews.length}, trend: ${trendLine}`);
+          }
+
+          main().catch(e => { console.error(e.message); process.exit(1); });
+          SCRIPT
