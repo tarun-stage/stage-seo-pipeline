@@ -1,0 +1,141 @@
+name: ASO PR — Keyword Safety Check
+
+on:
+  pull_request:
+    paths:
+      - 'aso/metadata/**'
+
+jobs:
+  keyword-check:
+    name: Check Keywords & Notify Slack
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run keyword safety check & post Slack review request
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          node << 'SCRIPT'
+          const { execSync } = require('child_process');
+          const fs = require('fs');
+          const https = require('https');
+
+          // Blocklist — must match CLAUDE.md
+          const BLOCKLIST = [
+            'sex','sexy','porn','pornography','xnxx','xvideos','xxx',
+            'adult','nude','naked','hot girl','hot video','erotic','18+',
+            'romance hot','bold scene','netflix','amazon prime','hotstar',
+            'jiocinema','mx player','zee5','sonyliv'
+          ];
+
+          // Get changed metadata files
+          const baseSha = process.env.BASE_SHA;
+          let changedFiles = [];
+          try {
+            const out = execSync(`git diff --name-only ${baseSha} HEAD -- aso/metadata/`, { encoding: 'utf8' });
+            changedFiles = out.trim().split('\n').filter(Boolean);
+          } catch(e) {
+            changedFiles = [];
+          }
+
+          // Read all current metadata files for review
+          const readFile = (p) => { try { return fs.readFileSync(p, 'utf8').trim(); } catch { return null; } };
+
+          const iosKw    = readFile('aso/metadata/ios/en-US/keywords.txt') || '';
+          const iosName  = readFile('aso/metadata/ios/en-US/name.txt') || '';
+          const iosSub   = readFile('aso/metadata/ios/en-US/subtitle.txt') || '';
+          const andTitle = readFile('aso/metadata/android/en-US/title.txt') || '';
+          const andShort = readFile('aso/metadata/android/en-US/short_description.txt') || '';
+          const andFull  = readFile('aso/metadata/android/en-US/full_description.txt') || '';
+
+          const allContent = [iosKw, iosName, iosSub, andTitle, andShort, andFull].join(' ').toLowerCase();
+
+          // Blocklist check
+          const flagged = BLOCKLIST.filter(word => {
+            const regex = new RegExp(`\\b${word.replace(/[+]/g,'\\+')}\\b`, 'i');
+            return regex.test(allContent);
+          });
+
+          const hasFlagged = flagged.length > 0;
+
+          // Build diff summary
+          let diffSummary = '';
+          if (changedFiles.length > 0) {
+            changedFiles.slice(0, 8).forEach(f => {
+              try {
+                const diff = execSync(`git diff ${baseSha} HEAD -- "${f}"`, { encoding: 'utf8' });
+                const added = diff.split('\n').filter(l => l.startsWith('+') && !l.startsWith('+++')).map(l => l.slice(1)).join(' ').slice(0, 120);
+                const removed = diff.split('\n').filter(l => l.startsWith('-') && !l.startsWith('---')).map(l => l.slice(1)).join(' ').slice(0, 120);
+                if (added || removed) {
+                  diffSummary += `\n*${f.replace('aso/metadata/','').replace('/en-US/','')}*`;
+                  if (removed) diffSummary += `\n  ~~${removed}~~`;
+                  if (added) diffSummary += `\n  → ${added}`;
+                }
+              } catch {}
+            });
+          } else {
+            diffSummary = '\n_No metadata files changed_';
+          }
+
+          // Slack message
+          const status = hasFlagged
+            ? `🚨 *BLOCKED — Prohibited keywords detected*\n*Flagged words:* \`${flagged.join(', ')}\`\n*Do NOT merge this PR until flagged keywords are removed.*`
+            : `✅ *Safety check passed — ready for review*`;
+
+          const charInfo = [
+            `iOS Keywords: ${iosKw.length}/100 chars`,
+            `iOS Name: ${iosName.length}/30 chars`,
+            `iOS Subtitle: ${iosSub.length}/30 chars`,
+            `Android Title: ${andTitle.length}/50 chars`,
+            `Android Short Desc: ${andShort.length}/80 chars`,
+          ].join(' | ');
+
+          const slackText = [
+            `*ASO Metadata PR — Review Required* 📋`,
+            `*PR:* <${process.env.PR_URL}|${process.env.PR_TITLE}>`,
+            `*Author:* ${process.env.PR_AUTHOR}`,
+            ``,
+            status,
+            ``,
+            `*Changed Files (${changedFiles.length}):*${diffSummary}`,
+            ``,
+            `*Character Counts:*`,
+            charInfo,
+            ``,
+            `*Current Keywords (iOS):* ${iosKw || 'N/A'}`,
+            `*Current Short Desc (Android):* ${andShort || 'N/A'}`,
+            ``,
+            hasFlagged
+              ? `❌ *Action: Remove prohibited keywords and push again before merging.*`
+              : `👉 *Action: Review the changes above and merge if approved →* ${process.env.PR_URL}`
+          ].join('\n');
+
+          const payload = JSON.stringify({ text: slackText });
+          const url = new URL(process.env.SLACK_WEBHOOK_URL);
+
+          https.request({
+            hostname: url.hostname,
+            path: url.pathname,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) },
+          }, res => {
+            res.on('data', () => {});
+            res.on('end', () => {
+              console.log(`Slack [${res.statusCode}] — flagged: ${flagged.length > 0 ? flagged.join(',') : 'none'}`);
+              if (hasFlagged) {
+                console.error(`BLOCKED: Prohibited keywords found: ${flagged.join(', ')}`);
+                process.exit(1);
+              }
+            });
+          }).on('error', e => { console.log('Slack error:', e.message); })
+          .end(payload);
+
+          SCRIPT
