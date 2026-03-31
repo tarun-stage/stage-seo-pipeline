@@ -37,7 +37,9 @@ jobs:
         run: gem install fastlane -N
 
       - name: Write Play Store key to file
-        run: echo '${{ secrets.PLAY_STORE_JSON_KEY }}' > /tmp/play-store-key.json
+        env:
+          PLAY_STORE_JSON_KEY: ${{ secrets.PLAY_STORE_JSON_KEY }}
+        run: echo "$PLAY_STORE_JSON_KEY" > /tmp/play-store-key.json
 
       - name: Push Android metadata to Play Store
         working-directory: aso
