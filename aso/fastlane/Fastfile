@@ -34,8 +34,16 @@ platform :android do
       skip_upload_apk: true,
       skip_upload_aab: true,
       skip_upload_screenshots: true,
+      skip_upload_images: true,
+      skip_upload_changelogs: false,
       metadata_path: "./metadata/android/en-US",
-      package_name: "in.stage"
+      package_name: "in.stage",
+      track: "production",
+      version_code: google_play_track_version_codes(
+        json_key: ENV["PLAY_STORE_KEY_PATH"],
+        package_name: "in.stage",
+        track: "production"
+      ).max
     )
   end
 end
