@@ -36,10 +36,13 @@ jobs:
       - name: Install Fastlane
         run: gem install fastlane -N
 
+      - name: Write Play Store key to file
+        run: echo '${{ secrets.PLAY_STORE_JSON_KEY }}' > /tmp/play-store-key.json
+
       - name: Push Android metadata to Play Store
         working-directory: aso
         env:
-          SUPPLY_JSON_KEY_DATA: ${{ secrets.PLAY_STORE_JSON_KEY }}
+          PLAY_STORE_KEY_PATH: /tmp/play-store-key.json
         run: fastlane android update_metadata
 
       - name: Notify Slack on success
@@ -47,7 +50,7 @@ jobs:
         run: |
           curl -s -X POST "${{ secrets.SLACK_WEBHOOK_URL }}" \
             -H "Content-Type: application/json" \
-            -d "{\"text\": \"*ASO Android metadata pushed to Play Store* ✅\nTriggered by: ${{ github.actor }} — ${{ github.event.head_commit.message }}\"}"
+            -d "{\"text\": \"*ASO Android metadata pushed to Play Store* ✅\nTriggered by: ${{ github.actor }}\"}"
 
       - name: Notify Slack on failure
         if: failure()
