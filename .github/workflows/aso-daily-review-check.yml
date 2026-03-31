@@ -139,19 +139,43 @@ jobs:
                 method: 'POST',
                 headers: {
                   'Content-Type': 'application/json',
-                  'x-paperclip-api-key': process.env.PAPERCLIP_API_KEY,
+                  'Authorization': `Bearer ${process.env.PAPERCLIP_API_KEY}`,
                   'Content-Length': Buffer.byteLength(payload),
                 },
               }, res => {
                 let data = '';
                 res.on('data', d => data += d);
                 res.on('end', () => {
-                  console.log(`Paperclip response [${res.statusCode}]:`, data.slice(0, 300));
+                  console.log(`Paperclip issue [${res.statusCode}]:`, data.slice(0, 300));
                   resolve();
                 });
               });
               req.on('error', reject);
               req.write(payload);
+              req.end();
+            });
+
+            // Wake up CEO agent
+            const wakePayload = JSON.stringify({ reason: `ASO daily review check — ${date}` });
+            const wakeUrl = new URL(`${apiBase}/api/agents/${CEO_AGENT_ID}/wakeup`);
+            await new Promise((resolve) => {
+              const req = (wakeUrl.protocol === 'https:' ? https : http).request({
+                hostname: wakeUrl.hostname,
+                port: wakeUrl.port || (wakeUrl.protocol === 'https:' ? 443 : 80),
+                path: wakeUrl.pathname,
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${process.env.PAPERCLIP_API_KEY}`,
+                  'Content-Length': Buffer.byteLength(wakePayload),
+                },
+              }, res => {
+                let data = '';
+                res.on('data', d => data += d);
+                res.on('end', () => { console.log(`Agent wakeup [${res.statusCode}]:`, data.slice(0, 200)); resolve(); });
+              });
+              req.on('error', e => { console.log('Wakeup error (non-fatal):', e.message); resolve(); });
+              req.write(wakePayload);
               req.end();
             });
 
