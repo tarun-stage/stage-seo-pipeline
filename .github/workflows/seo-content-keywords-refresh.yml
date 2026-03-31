@@ -19,7 +19,7 @@ jobs:
         run: |
           DATE=$(date +%Y-%m-%d)
           COMPANY_ID="f0a0b0c0-0001-4000-8000-000000000001"
-          AGENT_ID="f1000001-0002-4000-8000-000000000001"
+          AGENT_ID="53f47b5f-5301-4cfc-94b2-097d3e2373e3"
 
           DESC_JSON=$(node -e "
             const date = '${DATE}';
