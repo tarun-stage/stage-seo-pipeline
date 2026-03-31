@@ -35,7 +35,7 @@ platform :android do
       skip_upload_aab: true,
       skip_upload_screenshots: true,
       skip_upload_images: true,
-      skip_upload_changelogs: false,
+      skip_upload_changelogs: true,
       metadata_path: "./metadata/android/en-US",
       package_name: "in.stage",
       track: "production",
