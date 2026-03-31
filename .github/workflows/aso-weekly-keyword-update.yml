@@ -1,0 +1,73 @@
+name: ASO Weekly Keyword Update
+
+on:
+  schedule:
+    - cron: '30 3 * * 1'  # Every Monday 9:00 AM IST (3:30 AM UTC)
+  workflow_dispatch:
+
+jobs:
+  trigger-keyword-update:
+    name: Assign Keyword Update Task to ASO CEO
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Create Paperclip issue for CEO
+        env:
+          PAPERCLIP_API_URL: ${{ secrets.PAPERCLIP_API_URL }}
+          PAPERCLIP_API_KEY: ${{ secrets.PAPERCLIP_ASO_API_KEY }}
+        run: |
+          DATE=$(date +%Y-%m-%d)
+          WEEK=$(date +%V)
+          MONTH=$(date +%B)
+
+          DESCRIPTION="## Weekly ASO Keyword Update — ${DATE}
+
+          ### Your Task
+          Review and update app store metadata keywords for this week.
+
+          ### Steps
+          1. Check current keywords in \`aso/metadata/ios/en-US/keywords.txt\` and \`aso/metadata/android/en-US/\`
+          2. Research what is trending this week for Haryanvi/Rajasthani/Bhojpuri audience:
+             - Seasonal events or festivals in ${MONTH}
+             - New Haryanvi/Bhojpuri shows or movies trending
+             - Common search terms users are using
+          3. Update metadata files if improvements found (respect character limits)
+          4. Create feature branch \`feature/aso-update-${DATE}\` and commit changes
+          5. Open a GitHub PR with details of what changed and why
+          6. Post Slack notification so team can review and merge
+
+          ### Rules (MUST FOLLOW)
+          - Never remove core keywords: haryanvi, hariyanvi, ott, webseries, rajasthani, bhojpuri
+          - Check blocklist in CLAUDE.md before adding any keyword
+          - iOS keywords.txt: max 100 chars, comma-separated, no spaces
+          - Android title.txt: max 50 chars
+          - Android short_description.txt: max 80 chars
+          - If no meaningful update needed this week, exit cleanly — do not make changes just for the sake of it
+
+          ### Reference
+          - Repo: /paperclip/stage-seo-pipeline
+          - Current metadata: aso/metadata/
+          - CLAUDE.md has full instructions and blocklist"
+
+          curl -s -X POST "${PAPERCLIP_API_URL}/api/companies/03319c0f-9679-474a-90e2-7004053fdef2/issues" \
+            -H "Authorization: Bearer ${PAPERCLIP_API_KEY}" \
+            -H "Content-Type: application/json" \
+            -d "$(jq -n \
+              --arg title "[ASO] Weekly Keyword Update — ${DATE} (Week ${WEEK})" \
+              --arg desc "$DESCRIPTION" \
+              '{
+                title: $title,
+                description: $desc,
+                priority: "medium",
+                assigneeAgentId: "b4802fc6-f46a-443f-a5a9-86028686b5fc"
+              }')" | jq -r '.identifier // .error'
+
+      - name: Wake up CEO agent
+        env:
+          PAPERCLIP_API_URL: ${{ secrets.PAPERCLIP_API_URL }}
+          PAPERCLIP_API_KEY: ${{ secrets.PAPERCLIP_ASO_API_KEY }}
+        run: |
+          curl -s -X POST "${PAPERCLIP_API_URL}/api/agents/b4802fc6-f46a-443f-a5a9-86028686b5fc/wakeup" \
+            -H "Authorization: Bearer ${PAPERCLIP_API_KEY}" \
+            -H "Content-Type: application/json" \
+            -d '{"reason": "Weekly keyword update task assigned"}' | jq -r '.id // .error'
