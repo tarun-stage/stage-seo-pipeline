@@ -30,7 +30,7 @@ platform :android do
   desc "Push Android metadata to Play Store (no APK)"
   lane :update_metadata do
     supply(
-      json_key_data: ENV["SUPPLY_JSON_KEY_DATA"],
+      json_key: ENV["PLAY_STORE_KEY_PATH"],
       skip_upload_apk: true,
       skip_upload_aab: true,
       skip_upload_screenshots: true,
