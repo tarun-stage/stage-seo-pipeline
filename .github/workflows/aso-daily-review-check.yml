@@ -21,7 +21,7 @@ jobs:
       - name: Fetch reviews & create Paperclip issue for CEO
         env:
           PAPERCLIP_API_URL: ${{ secrets.PAPERCLIP_API_URL }}
-          PAPERCLIP_API_KEY: ${{ secrets.PAPERCLIP_API_KEY }}
+          PAPERCLIP_API_KEY: ${{ secrets.PAPERCLIP_ASO_API_KEY }}
         run: |
           node << 'SCRIPT'
           const { google } = require('googleapis');
