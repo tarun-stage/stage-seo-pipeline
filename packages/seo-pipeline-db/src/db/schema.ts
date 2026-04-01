@@ -176,7 +176,8 @@ function initSchema(db: Database): void {
       confidence REAL NOT NULL DEFAULT 0.5 CHECK(confidence >= 0 AND confidence <= 1),
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       last_confirmed_at TEXT,
-      times_confirmed INTEGER NOT NULL DEFAULT 1
+      times_confirmed INTEGER NOT NULL DEFAULT 1,
+      UNIQUE(source, pattern)
     )
   `);
   db.run(`CREATE INDEX IF NOT EXISTS idx_lessons_source ON lessons(source)`);

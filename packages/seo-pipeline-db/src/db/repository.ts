@@ -193,12 +193,15 @@ export function getAiCitationRate(
   platform?: string,
   days: number = 30
 ): { total: number; cited: number; rate: number } {
-  const platformFilter = platform ? `AND platform = '${platform}'` : '';
+  const params: (string | number)[] = [`-${days} days`];
+  const platformFilter = platform ? 'AND platform = ?' : '';
+  if (platform) params.push(platform);
   const results = db.exec(
     `SELECT COUNT(*) as total, SUM(cited) as cited
      FROM ai_citations
-     WHERE checked_at >= datetime('now', '-${days} days')
-     ${platformFilter}`
+     WHERE checked_at >= datetime('now', ?)
+     ${platformFilter}`,
+    params
   );
   if (!results.length || !results[0].values.length) return { total: 0, cited: 0, rate: 0 };
   const [total, cited] = results[0].values[0] as [number, number];
