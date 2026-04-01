@@ -90,9 +90,10 @@ jobs:
               : `[ASO] Daily Review Check — All clear ✅ ${date}`;
 
             let body = `## ASO Daily Review Report — ${date}\n\n`;
-            body += `### Rating Trend\n`;
+            body += `### Rating Trend (recent reviews only — NOT overall app rating)\n`;
+            body += `> Note: These averages are from the last 100 reviews fetched via API, filtered by date. Overall app rating (4.5★) is unaffected.\n\n`;
             body += `- ${trendLine}\n`;
-            body += `- This week avg: **${thisWeekAvg || 'N/A'}** | Last week avg: **${lastWeekAvg || 'N/A'}**\n\n`;
+            body += `- Recent reviews avg: This week **${thisWeekAvg || 'N/A'}★** | Last week **${lastWeekAvg || 'N/A'}★**\n\n`;
 
             body += `### Negative Reviews (last 24h, no reply): ${badReviews.length}\n\n`;
             if (badReviews.length > 0) {
@@ -186,14 +187,17 @@ jobs:
               return `  ${'⭐'.repeat(c.starRating)} — "${(c.text || '').slice(0, 100).replace(/\n/g,' ')}"`;
             }).join('\n');
 
+            const ratingNote = `_Recent review avg only (last 100 reviews). Overall app rating: 4.5★ (1.78L reviews)_`;
+
             const slackText = hasProblem
               ? [
                   `*ASO Daily Review Alert — ${date}* ⚠️`,
                   `*Package:* in.stage (Google Play)`,
                   ``,
-                  `*Rating Trend (7-day)*`,
+                  `*Recent Review Avg (last 7d)*`,
                   `• This week: ${thisWeekAvg || 'N/A'} ⭐ | Last week: ${lastWeekAvg || 'N/A'} ⭐`,
                   `• ${trendLine}`,
+                  ratingNote,
                   ``,
                   `*Negative Reviews (last 24h, no reply): ${badReviews.length}*`,
                   reviewLines || '  None',
@@ -205,9 +209,10 @@ jobs:
                   `*ASO Daily Review Check — ${date}* ✅`,
                   `*Package:* in.stage (Google Play)`,
                   ``,
-                  `*Rating Trend (7-day)*`,
+                  `*Recent Review Avg (last 7d)*`,
                   `• This week: ${thisWeekAvg || 'N/A'} ⭐ | Last week: ${lastWeekAvg || 'N/A'} ⭐`,
                   `• ${trendLine}`,
+                  ratingNote,
                   ``,
                   `*Negative Reviews (last 24h):* None — no action needed`,
                   `*Triggered by:* GitHub Actions (scheduled)`
