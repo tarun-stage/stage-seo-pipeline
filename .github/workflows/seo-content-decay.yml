@@ -1,0 +1,124 @@
+name: SEO Content Decay Monitor
+
+on:
+  schedule:
+    - cron: '30 3 1 * *'
+  workflow_dispatch:
+
+jobs:
+  content-decay:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm install googleapis
+
+      - name: Decode GSC service account key
+        run: echo "$GSC_SERVICE_ACCOUNT_KEY" | base64 -d > /tmp/gsc-key.json
+        env:
+          GSC_SERVICE_ACCOUNT_KEY: ${{ secrets.GSC_SERVICE_ACCOUNT_KEY }}
+
+      - name: Run content decay analysis
+        id: decay
+        env:
+          GSC_SITE_URL: ${{ secrets.GSC_SITE_URL }}
+        run: |
+          node << 'EOF'
+          const { google } = require('googleapis');
+          const fs = require('fs');
+
+          async function main() {
+            const key = JSON.parse(fs.readFileSync('/tmp/gsc-key.json', 'utf8'));
+            const auth = new google.auth.GoogleAuth({
+              credentials: key,
+              scopes: ['https://www.googleapis.com/auth/webmasters.readonly'],
+            });
+            const authClient = await auth.getClient();
+            const sc = google.searchconsole({ version: 'v1', auth: authClient });
+            const siteUrl = process.env.GSC_SITE_URL;
+
+            function daysAgo(n) {
+              const d = new Date();
+              d.setDate(d.getDate() - n);
+              return d.toISOString().slice(0, 10);
+            }
+
+            async function queryWindow(startDaysAgo, endDaysAgo) {
+              const res = await sc.searchanalytics.query({
+                siteUrl,
+                requestBody: {
+                  startDate: daysAgo(startDaysAgo),
+                  endDate: daysAgo(endDaysAgo),
+                  dimensions: ['page'],
+                  rowLimit: 5000,
+                },
+              });
+              const map = {};
+              for (const row of (res.data.rows || [])) {
+                map[row.keys[0]] = { clicks: row.clicks, impressions: row.impressions };
+              }
+              return map;
+            }
+
+            const [m1, m2, m3] = await Promise.all([
+              queryWindow(0, 30),
+              queryWindow(31, 60),
+              queryWindow(61, 90),
+            ]);
+
+            const decaying = [];
+            for (const page of Object.keys(m3)) {
+              const c3 = m3[page].clicks;
+              const c2 = (m2[page] || {}).clicks || 0;
+              const c1 = (m1[page] || {}).clicks || 0;
+              if (c3 >= 50 && c3 > c2 && c2 > c1) {
+                const totalLoss = c3 - c1;
+                decaying.push({ page, c3, c2, c1, totalLoss });
+              }
+            }
+
+            decaying.sort((a, b) => b.totalLoss - a.totalLoss);
+            const top15 = decaying.slice(0, 15);
+
+            const lines = top15.map((d, i) =>
+              `${i + 1}. ${d.page}\n   Month3: ${d.c3} → Month2: ${d.c2} → Month1: ${d.c1} clicks (loss: ${d.totalLoss})`
+            ).join('\n');
+
+            const output = top15.length > 0
+              ? `Found ${decaying.length} decaying pages. Top 15:\n${lines}`
+              : 'No content decay detected this month.';
+
+            fs.writeFileSync('/tmp/decay-output.txt', output);
+            console.log(output);
+          }
+
+          main().catch(e => { console.error(e); process.exit(1); });
+          EOF
+
+      - name: Create Paperclip issue
+        id: paperclip
+        run: |
+          REPORT=$(cat /tmp/decay-output.txt)
+          RESPONSE=$(curl -s -X POST "${{ secrets.PAPERCLIP_API_URL }}/v1/companies/f0a0b0c0-0001-4000-8000-000000000001/issues" \
+            -H "Authorization: Bearer ${{ secrets.PAPERCLIP_API_KEY }}" \
+            -H "Content-Type: application/json" \
+            -d "$(jq -n --arg title "SEO Content Decay Report - $(date +'%B %Y')" --arg body "$REPORT" '{title: $title, body: $body, priority: "high"}')")
+          echo "issue_id=$(echo $RESPONSE | jq -r '.id // empty')" >> $GITHUB_OUTPUT
+
+      - name: Wake up Paperclip agent
+        run: |
+          curl -s -X POST "${{ secrets.PAPERCLIP_API_URL }}/v1/companies/f0a0b0c0-0001-4000-8000-000000000001/agents/f1000001-0002-4000-8000-000000000001/wakeup" \
+            -H "Authorization: Bearer ${{ secrets.PAPERCLIP_API_KEY }}" \
+            -H "Content-Type: application/json" \
+            -d "$(jq -n --arg issue_id "${{ steps.paperclip.outputs.issue_id }}" '{issue_id: $issue_id, context: "SEO content decay analysis complete. Please review and suggest remediation actions."}')"
+
+      - name: Send Slack notification
+        run: |
+          REPORT=$(cat /tmp/decay-output.txt)
+          curl -s -X POST "${{ secrets.SLACK_WEBHOOK_URL }}" \
+            -H "Content-Type: application/json" \
+            -d "$(jq -n --arg text "*SEO Content Decay Monitor* — $(date +'%B %Y')\n\`\`\`${REPORT}\`\`\`\n*Paperclip Issue:* ${{ steps.paperclip.outputs.issue_id }}" '{text: $text}')"
