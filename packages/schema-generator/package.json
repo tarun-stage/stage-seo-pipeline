@@ -1,0 +1,19 @@
+{
+  "name": "@stage-seo/schema-generator",
+  "version": "1.0.0",
+  "description": "JSON-LD schema generator for Stage.in OTT platform pages",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "generate": "node dist/cli.js generate",
+    "validate": "node dist/cli.js validate"
+  },
+  "dependencies": {
+    "cheerio": "^1.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.0"
+  }
+}

@@ -12,83 +12,144 @@ jobs:
     timeout-minutes: 5
 
     steps:
-      - name: Create Paperclip audit task & wake agent
+      - name: Check for existing audit issue today
+        id: dedup
         env:
           PAPERCLIP_API_URL: ${{ secrets.PAPERCLIP_API_URL }}
           PAPERCLIP_API_KEY: ${{ secrets.PAPERCLIP_API_KEY }}
         run: |
           DATE=$(date +%Y-%m-%d)
+          echo "date=${DATE}" >> $GITHUB_OUTPUT
+          EXISTING=$(curl -s \
+            "$PAPERCLIP_API_URL/api/companies/f0a0b0c0-0001-4000-8000-000000000001/issues?status=todo&status=in_progress" \
+            -H "Authorization: Bearer $PAPERCLIP_API_KEY" | \
+            node -e "
+              const d = JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));
+              const arr = Array.isArray(d) ? d : (d.issues || d.data || []);
+              console.log(arr.some(i => i.title && i.title.includes('SEO Site Audit') && i.title.includes('${DATE}')) ? 'yes' : 'no');
+            " 2>/dev/null || echo "no")
+          echo "exists=${EXISTING}" >> $GITHUB_OUTPUT
+          echo "Duplicate check: exists=${EXISTING}"
+
+      - name: Create Paperclip audit task & wake agent
+        if: steps.dedup.outputs.exists != 'yes'
+        env:
+          PAPERCLIP_API_URL: ${{ secrets.PAPERCLIP_API_URL }}
+          PAPERCLIP_API_KEY: ${{ secrets.PAPERCLIP_API_KEY }}
+        run: |
+          DATE=${{ steps.dedup.outputs.date }}
           COMPANY_ID="f0a0b0c0-0001-4000-8000-000000000001"
           AGENT_ID="f1000001-0002-4000-8000-000000000001"
 
-          DESC_JSON=$(node -e "
-            const date = '${DATE}';
-            const desc = [
-              '## Full SEO Audit — stage.in (' + date + ')',
-              '',
-              '### Step 1: Crawl & Audit',
-              'Run a full SEO audit on https://stage.in covering all pages. Check:',
-              '',
-              '**Technical SEO:**',
-              '- Missing/duplicate title tags',
-              '- Missing/duplicate meta descriptions',
-              '- Missing canonical URLs',
-              '- Broken links (4xx, 5xx)',
-              '- Missing alt tags on images',
-              '- Missing Open Graph / Twitter Card meta tags',
-              '- Missing or incorrect hreflang tags',
-              '- Missing robots.txt directives',
-              '- Missing or incorrect sitemap.xml',
-              '- Page load speed issues',
-              '- Mobile usability issues',
-              '- Missing structured data (JSON-LD schema)',
-              '',
-              '**Content SEO:**',
-              '- Thin content pages (< 300 words)',
-              '- Duplicate content across pages',
-              '- Missing H1 tags or multiple H1s',
-              '- Keyword cannibalization',
-              '- Missing breadcrumbs',
-              '',
-              '**Dialects to cover:**',
-              '- /hi/haryanvi/*',
-              '- /hi/rajasthani/*',
-              '- /hi/bhojpuri/*',
-              '- /hi/gujarati/*',
-              '- Homepage /',
-              '- /movies, /shows, /watch pages',
-              '',
-              '### Step 2: Create issues list',
-              'After audit, post a comment on this issue with a full list of all problems found:',
-              '- Each issue with severity (critical/high/medium/low)',
-              '- Which URL(s) are affected',
-              '- What the fix should be',
-              '',
-              'Format:',
-              '```',
-              '| # | Issue | Severity | URLs affected | Fix |',
-              '|---|-------|----------|---------------|-----|',
-              '| 1 | Missing meta description | high | /hi/haryanvi/movies | Add description in generateMetadata |',
-              '```',
-              '',
-              '### Step 3: Fix all issues in one PR',
-              '1. git checkout main && git pull origin main',
-              '2. Create branch: \`fix/seo-audit-' + date + '\`',
-              '3. Fix ALL issues found in the audit',
-              '4. Run \`npx prettier --write .\` on changed files',
-              '5. Commit using conventional commits: \`fix(seo): full site audit fixes ' + date + '\`',
-              '6. Raise PR to vatsanatech/stage-webapp against main',
-              '7. Do NOT add any markdown/docs/report files — only code fixes',
-              '',
-              '### Step 4: Slack notification',
-              'After PR is raised, send Slack message via SLACK_WEBHOOK_URL:',
-              '',
-              'curl -X POST \"$SLACK_WEBHOOK_URL\" -H \"Content-Type: application/json\" -d \\'{\"text\": \"*SEO Site Audit — ' + date + '*\\\\nHi <@U07A91AB7GW>, full site audit completed. PR: <PR_URL>\\\\n\\\\n*Issues found:* <count> issues\\\\n*Critical:* <count> | *High:* <count> | *Medium:* <count>\"}\\' ',
-              '',
-              'CRITICAL: Use <@U07A91AB7GW> exactly as written for Slack mention.',
-            ].join('\\n');
-            console.log(JSON.stringify(desc));
-          ")
+          cat > /tmp/build_audit_desc.js << 'NODESCRIPT'
+          const date = process.env.RUN_DATE;
+
+          const desc = [
+            '## Full SEO + GEO Audit — stage.in (' + date + ')',
+            '',
+            '### Before You Start (Plan Node)',
+            '1. Read any lessons from past audit runs — do NOT repeat known failures',
+            '2. Scan 5-10 pages quickly to understand current state before diving in',
+            '3. Write a brief plan as a comment on this issue before starting fixes',
+            '4. Prioritize fixes: schema > GEO > technical SEO > content SEO',
+            '',
+            '### Step 1: Crawl & Full Audit',
+            'Run a comprehensive audit on https://stage.in covering all pages. Check:',
+            '',
+            '**Technical SEO:**',
+            '- Missing/duplicate title tags',
+            '- Missing/duplicate meta descriptions',
+            '- Missing canonical URLs',
+            '- Broken links (4xx, 5xx)',
+            '- Missing alt tags on images (generate suggested alt text where possible)',
+            '- Missing Open Graph / Twitter Card meta tags',
+            '- Missing or incorrect hreflang tags (hi↔en for all dialect pages)',
+            '- Missing or incorrect sitemap.xml',
+            '- Page load speed issues (Core Web Vitals: LCP, CLS, INP)',
+            '- Mobile usability issues',
+            '',
+            '**Schema / Structured Data (CRITICAL for OTT — fix these first):**',
+            '- Every /watch/* page MUST have VideoObject schema with: name, description, thumbnailUrl, uploadDate, duration, contentUrl',
+            '- Every /movies page MUST have Movie or ItemList schema',
+            '- Every /shows page MUST have TVSeries schema',
+            '- Homepage MUST have Organization + WebSite schema with SearchAction',
+            '- ALL pages MUST have BreadcrumbList schema',
+            '- All dialect landing pages (/hi/haryanvi/, /hi/rajasthani/, /hi/bhojpuri/, /hi/gujarati/) MUST have FAQPage schema',
+            '- Key landing pages should have Speakable schema (mark H1 and first paragraph)',
+            '- Validate all existing JSON-LD: document.querySelectorAll(\'script[type="application/ld+json"]\')',
+            '- Use @graph pattern for multiple schemas on same page',
+            '',
+            '**GEO (AI Search Optimization — new priority):**',
+            '- robots.txt MUST allow these AI bots: PerplexityBot, GPTBot, ChatGPT-User, ClaudeBot, anthropic-ai, Google-Extended',
+            '- /llms.txt must exist and be comprehensive (not just a link list)',
+            '- Content must follow answer-first structure (direct answer in first 50 words)',
+            '- Pages must include statistics and data points where relevant (+37% AI citation)',
+            '- H1 > H2 > H3 hierarchy must be logical (2.8x citation rate)',
+            '- Single H1 per page enforced (87% of AI-cited pages use single H1)',
+            '- Check content freshness — pages not updated in 90+ days lose 3x AI citations',
+            '- Check E-E-A-T signals: author attribution, credentials, external citations',
+            '',
+            '**Content SEO:**',
+            '- Thin content pages (< 300 words)',
+            '- Duplicate content across pages',
+            '- Missing H1 tags or multiple H1s',
+            '- Keyword cannibalization (multiple pages targeting same keyword)',
+            '- Missing breadcrumbs',
+            '',
+            '**Dialects to cover:**',
+            '- /hi/haryanvi/* (movies, shows, homepage)',
+            '- /hi/rajasthani/* (movies, shows, homepage)',
+            '- /hi/bhojpuri/* (movies, shows, homepage)',
+            '- /hi/gujarati/* (movies, shows, homepage)',
+            '- Homepage /',
+            '- /movies, /shows, /watch pages',
+            '',
+            '### Step 2: Create prioritized issues list',
+            'After audit, post a comment on this issue with ALL problems found:',
+            '',
+            'Format:',
+            '```',
+            '| # | Issue | Category | Severity | URLs affected | Fix |',
+            '|---|-------|----------|----------|---------------|-----|',
+            '| 1 | Missing VideoObject schema | schema | critical | /watch/* (all) | Add JSON-LD VideoObject in layout |',
+            '| 2 | robots.txt blocking GPTBot | geo | critical | /robots.txt | Remove Disallow for GPTBot |',
+            '| 3 | Missing FAQPage schema | geo | high | /hi/haryanvi/ | Add FAQPage JSON-LD |',
+            '```',
+            '',
+            'Severity rules:',
+            '- critical: Missing OTT schemas, AI bots blocked in robots.txt',
+            '- high: Missing FAQPage, meta descriptions, broken links, missing hreflang',
+            '- medium: Missing BreadcrumbList, stale content, missing alt text',
+            '- low: Missing Speakable, minor URL structure issues',
+            '',
+            '### Step 3: Fix all issues in one PR — SCHEMA FIRST',
+            '1. git checkout main && git pull origin main',
+            '2. Create branch: `fix/seo-audit-' + date + '`',
+            '3. Fix ALL issues — prioritize schema changes first',
+            '4. For schema: add <script type="application/ld+json"> in appropriate layout/page components',
+            '5. For robots.txt: ensure AI bots are allowed',
+            '6. Run `npx prettier --write .` on changed files',
+            '7. Commit: `fix(seo): full site + GEO audit fixes ' + date + '`',
+            '8. Raise PR to vatsanatech/stage-webapp against main',
+            '9. Do NOT add markdown/docs/report files — only code fixes',
+            '',
+            '### Step 4: Slack notification',
+            'After PR is raised:',
+            '',
+            'curl -X POST "$SLACK_WEBHOOK_URL" -H "Content-Type: application/json" -d \'{"text": "*SEO + GEO Audit — ' + date + '*\\nHi <@U07A91AB7GW>, full audit completed. PR: <PR_URL>\\n\\n*Issues found:* <count>\\n*Schema:* <count> | *GEO:* <count> | *Technical:* <count> | *Content:* <count>\\n*Critical:* <count> | *High:* <count> | *Medium:* <count>"}\'',
+            '',
+            'CRITICAL: Use <@U07A91AB7GW> exactly as written for Slack mention.',
+            '',
+            '### After You Finish (Self-Improvement)',
+            '- Note which fix types worked well and which caused PR review issues',
+            '- If any fix was rejected, record why to avoid repeating',
+            '- Flag patterns that should be automated in future pipeline runs',
+          ].join('\n');
+
+          console.log(JSON.stringify(desc));
+          NODESCRIPT
+
+          DESC_JSON=$(RUN_DATE="${DATE}" node /tmp/build_audit_desc.js)
 
           curl -s -X POST \
             "$PAPERCLIP_API_URL/api/companies/$COMPANY_ID/issues" \
@@ -108,3 +169,7 @@ jobs:
             -H "Content-Type: application/json" \
             -d "{\"reason\": \"SEO Site Audit ${DATE}\"}" \
             && echo "Agent wakeup sent" || echo "Wakeup failed"
+
+      - name: Skip (duplicate issue exists)
+        if: steps.dedup.outputs.exists == 'yes'
+        run: echo "Audit issue for ${{ steps.dedup.outputs.date }} already exists — skipping creation"

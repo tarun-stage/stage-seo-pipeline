@@ -163,6 +163,42 @@ function initSchema(db: Database): void {
   `);
   db.run(`CREATE INDEX IF NOT EXISTS idx_ar_agent ON agent_runs(agent_name)`);
   db.run(`CREATE INDEX IF NOT EXISTS idx_ar_status ON agent_runs(status)`);
+
+  // 9. lessons — self-improvement loop
+  // Agent reads these before each run, writes after each run.
+  // Confidence increases when a lesson is confirmed multiple times.
+  db.run(`
+    CREATE TABLE IF NOT EXISTS lessons (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      source TEXT NOT NULL,
+      pattern TEXT NOT NULL,
+      type TEXT NOT NULL CHECK(type IN ('success', 'failure', 'observation')),
+      confidence REAL NOT NULL DEFAULT 0.5 CHECK(confidence >= 0 AND confidence <= 1),
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      last_confirmed_at TEXT,
+      times_confirmed INTEGER NOT NULL DEFAULT 1
+    )
+  `);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_lessons_source ON lessons(source)`);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_lessons_type ON lessons(type)`);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_lessons_confidence ON lessons(confidence DESC)`);
+
+  // 10. ai_citations — track Stage.in visibility in AI search
+  db.run(`
+    CREATE TABLE IF NOT EXISTS ai_citations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      query TEXT NOT NULL,
+      dialect TEXT NOT NULL DEFAULT 'general',
+      platform TEXT NOT NULL,
+      cited INTEGER NOT NULL DEFAULT 0 CHECK(cited IN (0, 1)),
+      position INTEGER,
+      competitors_cited TEXT DEFAULT '[]',
+      checked_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_ac_platform ON ai_citations(platform)`);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_ac_dialect ON ai_citations(dialect)`);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_ac_date ON ai_citations(checked_at)`);
 }
 
 export function saveDatabase(db: Database, dbPath: string = 'seo_pipeline.db'): void {
