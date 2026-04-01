@@ -48,19 +48,29 @@ jobs:
           PLAY_STORE_KEY_PATH: /tmp/play-store-key.json
         run: fastlane android update_metadata
 
-      - name: Notify Slack on success
+      - name: Notify via Paperclip on success
         if: success()
+        env:
+          PAPERCLIP_API_URL: ${{ secrets.PAPERCLIP_API_URL }}
+          PAPERCLIP_API_KEY: ${{ secrets.PAPERCLIP_ASO_API_KEY }}
         run: |
-          curl -s -X POST "${{ secrets.SLACK_WEBHOOK_URL }}" \
+          curl -s -X POST "$PAPERCLIP_API_URL/api/companies/03319c0f-9679-474a-90e2-7004053fdef2/issues" \
+            -H "Authorization: Bearer $PAPERCLIP_API_KEY" \
             -H "Content-Type: application/json" \
-            -d "{\"text\": \"*ASO Android metadata pushed to Play Store* ✅\nTriggered by: ${{ github.actor }}\"}"
+            -d "{\"title\": \"ASO Android metadata pushed ✅ — ${{ github.run_id }}\", \"description\": \"Android metadata successfully pushed to Play Store.\\n\\nTriggered by: ${{ github.actor }}\\nRun: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\", \"status\": \"done\", \"priority\": \"low\"}" \
+            && echo "Paperclip notified" || echo "Paperclip notify failed (non-fatal)"
 
-      - name: Notify Slack on failure
+      - name: Notify via Paperclip on failure
         if: failure()
+        env:
+          PAPERCLIP_API_URL: ${{ secrets.PAPERCLIP_API_URL }}
+          PAPERCLIP_API_KEY: ${{ secrets.PAPERCLIP_ASO_API_KEY }}
         run: |
-          curl -s -X POST "${{ secrets.SLACK_WEBHOOK_URL }}" \
+          curl -s -X POST "$PAPERCLIP_API_URL/api/companies/03319c0f-9679-474a-90e2-7004053fdef2/issues" \
+            -H "Authorization: Bearer $PAPERCLIP_API_KEY" \
             -H "Content-Type: application/json" \
-            -d "{\"text\": \"*ASO Android metadata push FAILED* ❌\nCheck: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"}"
+            -d "{\"title\": \"ASO Android metadata push FAILED ❌ — ${{ github.run_id }}\", \"description\": \"Android metadata push to Play Store failed.\\n\\nCheck: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\", \"status\": \"todo\", \"priority\": \"high\"}" \
+            && echo "Paperclip notified" || echo "Paperclip notify failed (non-fatal)"
 
   push-ios:
     name: Push iOS Metadata to App Store
