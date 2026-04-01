@@ -74,6 +74,11 @@ jobs:
             '',
             '**Why this matters:** Pages not updated in 90+ days lose 3x AI citation rate.',
             '',
+            '### Step 0: Read seo-program.md FIRST (autoresearch loop)',
+            '1. Read `seo-program.md` from vatsanatech/stage-seo-pipeline repo (main branch)',
+            '2. Note which pages were stale in previous runs — track if freshness is improving',
+            '3. Apply any confirmed content refresh patterns from High Confidence Lessons',
+            '',
             '### Stale Pages Found',
             stalePages.trim().split(' ').filter(Boolean).map(p => '- ' + p).join('\n'),
             '',
@@ -95,6 +100,15 @@ jobs:
             'curl -X POST "$SLACK_WEBHOOK_URL" -H "Content-Type: application/json" -d \'{"text": "*Freshness Check — ' + date + '*\\nHi <@U07A91AB7GW>, ' + staleCount + ' stale pages refreshed. PR: <PR_URL>"}\'',
             '',
             'CRITICAL: Use <@U07A91AB7GW> exactly as written for Slack mention.',
+            '',
+            '### After You Finish — Update seo-program.md (autoresearch loop)',
+            'MANDATORY — do this after every run:',
+            '1. Open `seo-program.md` in vatsanatech/stage-seo-pipeline (main branch)',
+            '2. Add entry to Experiment Log: which pages were stale, what content was refreshed',
+            '3. Update Metrics Baseline with freshness data',
+            '4. Note if the same pages keep going stale — flag for automation',
+            '5. Commit directly to main: `chore(seo): update program.md after freshness check ' + date + '`',
+            '   — Do NOT raise a PR for this commit, push directly to main',
           ].join('\n');
 
           console.log(JSON.stringify(desc));

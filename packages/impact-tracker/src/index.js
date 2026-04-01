@@ -120,6 +120,88 @@ async function main() {
       break;
     }
 
+    case 'geo-report': {
+      // GAP-12: GEO metrics report — reads from ai-visibility-tracker data
+      const fs = require('fs');
+      const path = require('path');
+      const dataDir = process.env.AI_TRACKER_DATA_DIR || path.join(__dirname, '..', '..', 'ai-visibility-tracker', 'data');
+      const citationsFile = path.join(dataDir, 'citations.json');
+
+      if (!fs.existsSync(citationsFile)) {
+        console.log('No AI citation data found. Run ai-visibility-tracker first.');
+        console.log(`Expected at: ${citationsFile}`);
+        console.log('Override with AI_TRACKER_DATA_DIR env var.');
+        break;
+      }
+
+      const citations = JSON.parse(fs.readFileSync(citationsFile, 'utf8'));
+      const days = parseInt(process.argv[3] || '30', 10);
+      const since = new Date();
+      since.setDate(since.getDate() - days);
+      const recent = citations.filter(c => new Date(c.checkedAt) >= since);
+
+      if (recent.length === 0) {
+        console.log(`No AI citation data in the last ${days} days.`);
+        break;
+      }
+
+      // Aggregate by platform
+      const byPlatform = {};
+      for (const c of recent) {
+        if (!byPlatform[c.platform]) byPlatform[c.platform] = { total: 0, cited: 0 };
+        byPlatform[c.platform].total++;
+        if (c.cited) byPlatform[c.platform].cited++;
+      }
+
+      // Aggregate by dialect
+      const byDialect = {};
+      for (const c of recent) {
+        if (!byDialect[c.dialect]) byDialect[c.dialect] = { total: 0, cited: 0 };
+        byDialect[c.dialect].total++;
+        if (c.cited) byDialect[c.dialect].cited++;
+      }
+
+      const totalCited = recent.filter(c => c.cited).length;
+      const overallRate = (totalCited / recent.length * 100).toFixed(1);
+
+      console.log(`\n=== GEO / AI Citation Report (last ${days} days) ===\n`);
+      console.log(`Overall citation rate: ${overallRate}% (${totalCited}/${recent.length} queries)\n`);
+
+      console.log('By platform:');
+      for (const [platform, data] of Object.entries(byPlatform)) {
+        const rate = (data.cited / data.total * 100).toFixed(1);
+        console.log(`  ${platform}: ${rate}% (${data.cited}/${data.total})`);
+      }
+
+      console.log('\nBy dialect:');
+      for (const [dialect, data] of Object.entries(byDialect)) {
+        const rate = (data.cited / data.total * 100).toFixed(1);
+        console.log(`  ${dialect}: ${rate}% (${data.cited}/${data.total})`);
+      }
+
+      // Trend: first half vs second half
+      const midpoint = new Date(since.getTime() + (Date.now() - since.getTime()) / 2);
+      const firstHalf = recent.filter(c => new Date(c.checkedAt) < midpoint);
+      const secondHalf = recent.filter(c => new Date(c.checkedAt) >= midpoint);
+      if (firstHalf.length > 0 && secondHalf.length > 0) {
+        const firstRate = firstHalf.filter(c => c.cited).length / firstHalf.length * 100;
+        const secondRate = secondHalf.filter(c => c.cited).length / secondHalf.length * 100;
+        const trend = secondRate > firstRate ? '↑ improving' : secondRate < firstRate ? '↓ declining' : '→ stable';
+        console.log(`\nTrend: ${firstRate.toFixed(1)}% → ${secondRate.toFixed(1)}% ${trend}`);
+      }
+
+      // Send to Slack if webhook configured
+      if (process.env.SLACK_WEBHOOK_URL) {
+        const slack = require('./slack');
+        await slack.sendSlackMessage(
+          `*GEO Citation Report (${days}d)*\nOverall: ${overallRate}% citation rate (${totalCited}/${recent.length})\n` +
+          Object.entries(byPlatform).map(([p, d]) => `${p}: ${(d.cited/d.total*100).toFixed(1)}%`).join(' | ')
+        );
+        console.log('\nReport sent to Slack.');
+      }
+      break;
+    }
+
     case 'help':
     default:
       console.log(`SEO Impact Tracker - Track and measure SEO fix ROI
@@ -131,16 +213,18 @@ Commands:
   check-ready                           List fixes ready for measurement
   track                                 Run impact tracking on ready fixes
   report                                Generate and send ROI summary
+  geo-report [days]                     GEO / AI citation rate report (default: 30 days)
   status                                Show tracker status summary
   help                                  Show this help message
 
 Environment Variables:
-  GSC_CREDENTIALS_PATH  Path to Google Search Console service account JSON
-  GSC_SITE_URL          Site URL in GSC (e.g. https://example.com)
-  SLACK_WEBHOOK_URL     Slack incoming webhook URL
-  SLACK_CHANNEL         Slack channel (default: #seo-alerts)
-  POST_FIX_DAYS         Days to wait before measuring (default: 7)
-  PRE_FIX_BASELINE_DAYS Baseline comparison window (default: 7)
+  GSC_CREDENTIALS_PATH    Path to Google Search Console service account JSON
+  GSC_SITE_URL            Site URL in GSC (e.g. https://example.com)
+  SLACK_WEBHOOK_URL       Slack incoming webhook URL
+  SLACK_CHANNEL           Slack channel (default: #seo-alerts)
+  POST_FIX_DAYS           Days to wait before measuring (default: 7)
+  PRE_FIX_BASELINE_DAYS   Baseline comparison window (default: 7)
+  AI_TRACKER_DATA_DIR     Path to ai-visibility-tracker data dir (for geo-report)
 `);
       break;
   }

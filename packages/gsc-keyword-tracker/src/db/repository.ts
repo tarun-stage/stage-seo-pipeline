@@ -277,6 +277,132 @@ export function getSnapshotCount(db: Database): number {
   return (row.count as number) ?? 0;
 }
 
+// --- Keyword Clustering (GAP-11) ---
+
+export interface KeywordCluster {
+  topic: string;
+  dialect: string | null;
+  keywords: string[];
+  totalClicks: number;
+  avgPosition: number;
+}
+
+export interface CannibalizationPair {
+  keyword: string;
+  pages: Array<{ url: string; position: number; clicks: number }>;
+  risk: 'high' | 'medium' | 'low';
+}
+
+export function getKeywordClusters(db: Database, limit = 100): KeywordCluster[] {
+  const stmt = db.prepare(
+    `SELECT query, dialect, SUM(clicks) as clicks, AVG(position) as position
+     FROM keywords
+     WHERE date >= date('now', '-30 days')
+     GROUP BY query
+     ORDER BY clicks DESC
+     LIMIT ?`
+  );
+  stmt.bind([limit]);
+
+  const rows: Array<{ query: string; dialect: string | null; clicks: number; position: number }> = [];
+  while (stmt.step()) {
+    const row = stmt.getAsObject() as Record<string, unknown>;
+    rows.push({
+      query: row.query as string,
+      dialect: row.dialect as string | null,
+      clicks: row.clicks as number,
+      position: row.position as number,
+    });
+  }
+  stmt.free();
+
+  // Cluster by shared first 2 words (topic extraction)
+  const clusters = new Map<string, KeywordCluster>();
+  for (const row of rows) {
+    const words = row.query.toLowerCase().trim().split(/\s+/);
+    // Use first 1-2 meaningful words as topic key
+    const topicWords = words.slice(0, Math.min(2, words.length));
+    const topic = topicWords.join(' ');
+    const clusterKey = `${topic}::${row.dialect ?? 'generic'}`;
+
+    if (!clusters.has(clusterKey)) {
+      clusters.set(clusterKey, {
+        topic,
+        dialect: row.dialect,
+        keywords: [],
+        totalClicks: 0,
+        avgPosition: 0,
+      });
+    }
+    const cluster = clusters.get(clusterKey)!;
+    cluster.keywords.push(row.query);
+    cluster.totalClicks += row.clicks;
+    cluster.avgPosition = (cluster.avgPosition * (cluster.keywords.length - 1) + row.position) / cluster.keywords.length;
+  }
+
+  return Array.from(clusters.values())
+    .filter(c => c.keywords.length > 1) // Only return clusters with >1 keyword
+    .sort((a, b) => b.totalClicks - a.totalClicks);
+}
+
+export function detectCannibalization(db: Database): CannibalizationPair[] {
+  // Find keywords where multiple trend entries show high impressions
+  // In GSC data, cannibalization shows as same keyword with split traffic
+  const stmt = db.prepare(
+    `SELECT kt1.query,
+            kt1.current_impressions,
+            kt1.current_position,
+            kt1.current_clicks
+     FROM keyword_trends kt1
+     WHERE kt1.current_position BETWEEN 1 AND 20
+       AND kt1.current_impressions > 100
+     GROUP BY kt1.query
+     HAVING COUNT(*) > 1
+     ORDER BY kt1.current_impressions DESC
+     LIMIT 20`
+  );
+  stmt.step();
+  stmt.free();
+
+  // Simpler approach: find keywords with high impressions but poor CTR (cannibalization signal)
+  const stmt2 = db.prepare(
+    `SELECT query, dialect,
+            AVG(ctr) as avg_ctr,
+            SUM(impressions) as total_impressions,
+            AVG(position) as avg_position,
+            SUM(clicks) as total_clicks
+     FROM keywords
+     WHERE date >= date('now', '-30 days')
+       AND impressions > 50
+       AND position BETWEEN 1 AND 15
+     GROUP BY query
+     HAVING avg_ctr < 0.03 AND total_impressions > 100
+     ORDER BY total_impressions DESC
+     LIMIT 20`
+  );
+
+  const pairs: CannibalizationPair[] = [];
+  while (stmt2.step()) {
+    const row = stmt2.getAsObject() as Record<string, unknown>;
+    const query = row.query as string;
+    const impressions = row.total_impressions as number;
+    const position = row.avg_position as number;
+    const clicks = row.total_clicks as number;
+
+    // Low CTR at good position = likely cannibalization (multiple pages splitting clicks)
+    const risk: CannibalizationPair['risk'] = impressions > 500 ? 'high' : impressions > 200 ? 'medium' : 'low';
+
+    pairs.push({
+      keyword: query,
+      pages: [{ url: `position ${position.toFixed(1)}`, position, clicks }],
+      risk,
+    });
+  }
+  stmt2.free();
+
+  return pairs;
+}
+
 // --- Helpers ---
 
 function mapRowToSnapshot(row: Record<string, unknown>): TrendSnapshot {
