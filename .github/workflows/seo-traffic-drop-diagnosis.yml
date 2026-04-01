@@ -1,0 +1,299 @@
+name: SEO Traffic Drop Diagnosis
+
+on:
+  schedule:
+    - cron: '30 2 * * 1'  # Every Monday 8 AM IST (2:30 AM UTC)
+  workflow_dispatch:
+
+jobs:
+  diagnose-traffic:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Decode GSC service account key
+        run: echo "$GSC_SERVICE_ACCOUNT_KEY" | base64 -d > /tmp/gsc-key.json
+        env:
+          GSC_SERVICE_ACCOUNT_KEY: ${{ secrets.GSC_SERVICE_ACCOUNT_KEY }}
+
+      - name: Install dependencies
+        run: npm install googleapis
+
+      - name: Run traffic drop diagnosis
+        env:
+          GSC_SITE_URL: ${{ secrets.GSC_SITE_URL }}
+          PAPERCLIP_API_URL: ${{ secrets.PAPERCLIP_API_URL }}
+          PAPERCLIP_API_KEY: ${{ secrets.PAPERCLIP_API_KEY }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          node << 'EOF'
+          const { google } = require('googleapis');
+
+          const COMPANY_ID = 'f0a0b0c0-0001-4000-8000-000000000001';
+          const AGENT_ID   = 'f1000001-0002-4000-8000-000000000001';
+          const SITE_URL   = process.env.GSC_SITE_URL;
+
+          async function makeRequest(urlStr, options, body) {
+            const parsedUrl = new URL(urlStr);
+            const isHttps = parsedUrl.protocol === 'https:';
+            const mod = isHttps ? require('https') : require('http');
+            return new Promise((resolve, reject) => {
+              const req = mod.request(urlStr, options, (res) => {
+                let data = '';
+                res.on('data', chunk => { data += chunk; });
+                res.on('end', () => resolve({ status: res.statusCode, body: data }));
+              });
+              req.on('error', reject);
+              if (body) req.write(typeof body === 'string' ? body : JSON.stringify(body));
+              req.end();
+            });
+          }
+
+          function dateStr(daysAgo) {
+            const d = new Date();
+            d.setDate(d.getDate() - daysAgo);
+            return d.toISOString().split('T')[0];
+          }
+
+          async function queryGSC(searchconsole, startDate, endDate, dimensions, dimensionFilters) {
+            const params = {
+              siteUrl: SITE_URL,
+              requestBody: {
+                startDate,
+                endDate,
+                dimensions,
+                rowLimit: 50,
+              },
+            };
+            if (dimensionFilters) {
+              params.requestBody.dimensionFilterGroups = [{
+                filters: dimensionFilters,
+              }];
+            }
+            const res = await searchconsole.searchanalytics.query(params);
+            return (res.data && res.data.rows) ? res.data.rows : [];
+          }
+
+          async function main() {
+            // Authenticate
+            const auth = new google.auth.GoogleAuth({
+              keyFile: '/tmp/gsc-key.json',
+              scopes: ['https://www.googleapis.com/auth/webmasters.readonly'],
+            });
+            const authClient = await auth.getClient();
+            const searchconsole = google.searchconsole({ version: 'v1', auth: authClient });
+
+            // Date ranges
+            const today      = dateStr(0);
+            const d1Start    = dateStr(28);   // last 28 days start
+            const d1End      = dateStr(1);    // last 28 days end
+            const d2Start    = dateStr(56);   // prev 28 days start
+            const d2End      = dateStr(29);   // prev 28 days end
+
+            console.log(`Period 1: ${d1Start} to ${d1End}`);
+            console.log(`Period 2: ${d2Start} to ${d2End}`);
+
+            // Query 1: last 28 days by page
+            const rows1 = await queryGSC(searchconsole, d1Start, d1End, ['page']);
+            // Query 2: prev 28 days by page
+            const rows2 = await queryGSC(searchconsole, d2Start, d2End, ['page']);
+
+            console.log(`Period 1: ${rows1.length} pages | Period 2: ${rows2.length} pages`);
+
+            // Index period 2 by page URL
+            const prev = {};
+            for (const row of rows2) {
+              const url = row.keys[0];
+              prev[url] = {
+                clicks:      row.clicks      || 0,
+                impressions: row.impressions || 0,
+                ctr:         row.ctr         || 0,
+                position:    row.position    || 0,
+              };
+            }
+
+            // Find pages with >25% click drop
+            const drops = [];
+            for (const row of rows1) {
+              const url = row.keys[0];
+              const cur = {
+                clicks:      row.clicks      || 0,
+                impressions: row.impressions || 0,
+                ctr:         row.ctr         || 0,
+                position:    row.position    || 0,
+              };
+              const p = prev[url];
+              if (!p || p.clicks === 0) continue;
+              const dropPct = (p.clicks - cur.clicks) / p.clicks;
+              if (dropPct > 0.25) {
+                drops.push({ url, cur, prev: p, dropPct });
+              }
+            }
+
+            // Sort by absolute click drop descending, take top 10
+            drops.sort((a, b) => (b.prev.clicks - b.cur.clicks) - (a.prev.clicks - a.cur.clicks));
+            const top10 = drops.slice(0, 10);
+
+            console.log(`Found ${drops.length} pages with >25% drop. Diagnosing top ${top10.length}...`);
+
+            // Diagnose each page
+            const diagnosed = [];
+            for (const item of top10) {
+              let diagnosis = 'Mixed signals';
+
+              // Fetch page+query level data for this page (period 1)
+              let pageRows = [];
+              try {
+                pageRows = await queryGSC(
+                  searchconsole,
+                  d1Start,
+                  d1End,
+                  ['page', 'query'],
+                  [{ dimension: 'page', operator: 'equals', expression: item.url }]
+                );
+              } catch (err) {
+                console.log(`Could not fetch query data for ${item.url}: ${err.message}`);
+              }
+
+              const positionDrop  = item.cur.position  - item.prev.position;   // positive = dropped
+              const ctrDropPct    = item.prev.ctr > 0
+                ? (item.prev.ctr - item.cur.ctr) / item.prev.ctr
+                : 0;
+              const impDropPct    = item.prev.impressions > 0
+                ? (item.prev.impressions - item.cur.impressions) / item.prev.impressions
+                : 0;
+
+              if (positionDrop > 3) {
+                diagnosis = 'Ranking Loss';
+              } else if (positionDrop <= 3 && ctrDropPct > 0.30) {
+                diagnosis = 'CTR Collapse (fix title/meta)';
+              } else if (positionDrop <= 3 && ctrDropPct <= 0.30 && impDropPct > 0.30) {
+                diagnosis = 'Demand Decline';
+              } else {
+                diagnosis = 'Mixed signals';
+              }
+
+              diagnosed.push({
+                url:         item.url,
+                dropPct:     Math.round(item.dropPct * 100),
+                prevClicks:  item.prev.clicks,
+                curClicks:   item.cur.clicks,
+                positionDrop: positionDrop.toFixed(1),
+                ctrDropPct:  Math.round(ctrDropPct * 100),
+                impDropPct:  Math.round(impDropPct * 100),
+                diagnosis,
+              });
+
+              console.log(`${item.url} → ${diagnosis} (clicks: ${item.prev.clicks}→${item.cur.clicks}, pos drop: ${positionDrop.toFixed(1)}, ctr drop: ${Math.round(ctrDropPct*100)}%, imp drop: ${Math.round(impDropPct*100)}%)`);
+            }
+
+            // Build report
+            const reportLines = diagnosed.map((d, i) =>
+              `${i + 1}. **${d.url}**\n` +
+              `   - Clicks: ${d.prevClicks} → ${d.curClicks} (↓${d.dropPct}%)\n` +
+              `   - Position drop: ${d.positionDrop} | CTR drop: ${d.ctrDropPct}% | Impression drop: ${d.impDropPct}%\n` +
+              `   - **Diagnosis: ${d.diagnosis}**`
+            ).join('\n\n');
+
+            const issueBody = `## SEO Traffic Drop Diagnosis\n\n` +
+              `**Report Date:** ${today}\n` +
+              `**Period 1:** ${d1Start} to ${d1End} (last 28 days)\n` +
+              `**Period 2:** ${d2Start} to ${d2End} (previous 28 days)\n\n` +
+              `**Total pages with >25% click drop:** ${drops.length}\n\n` +
+              `### Top ${diagnosed.length} Drops\n\n${reportLines}\n\n` +
+              `**Run:** https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}`;
+
+            // Slack summary lines
+            const slackLines = diagnosed.map((d, i) =>
+              `${i + 1}. <${d.url}|${d.url}> — ↓${d.dropPct}% clicks — *${d.diagnosis}*`
+            ).join('\n');
+
+            // Create Paperclip issue
+            const paperclipUrl = process.env.PAPERCLIP_API_URL;
+            const paperclipKey = process.env.PAPERCLIP_API_KEY;
+            let issueId = null;
+            if (paperclipUrl && paperclipKey) {
+              try {
+                const issuePayload = {
+                  company_id: COMPANY_ID,
+                  agent_id:   AGENT_ID,
+                  title:      `SEO Traffic Drop Report ${today}: ${drops.length} pages dropped >25%`,
+                  body:       issueBody,
+                };
+                const createIssueUrl = `${paperclipUrl.replace(/\/$/, '')}/api/v1/issues`;
+                const bodyStr = JSON.stringify(issuePayload);
+                const createRes = await makeRequest(createIssueUrl, {
+                  method: 'POST',
+                  headers: {
+                    'Authorization': `Bearer ${paperclipKey}`,
+                    'Content-Type': 'application/json',
+                    'Content-Length': Buffer.byteLength(bodyStr),
+                  },
+                }, bodyStr);
+                console.log(`Paperclip issue: ${createRes.status} ${createRes.body}`);
+                try { issueId = JSON.parse(createRes.body).id; } catch {}
+
+                // Wake agent
+                const wakeUrl = `${paperclipUrl.replace(/\/$/, '')}/api/v1/agents/${AGENT_ID}/wake`;
+                const wakePayload = issueId ? { issue_id: issueId } : {};
+                const wakeBodyStr = JSON.stringify(wakePayload);
+                const wakeRes = await makeRequest(wakeUrl, {
+                  method: 'POST',
+                  headers: {
+                    'Authorization': `Bearer ${paperclipKey}`,
+                    'Content-Type': 'application/json',
+                    'Content-Length': Buffer.byteLength(wakeBodyStr),
+                  },
+                }, wakeBodyStr);
+                console.log(`Agent wake: ${wakeRes.status}`);
+              } catch (err) {
+                console.log(`Paperclip error: ${err.message}`);
+              }
+            }
+
+            // Post Slack notification
+            const slackWebhook = process.env.SLACK_WEBHOOK_URL;
+            if (slackWebhook) {
+              try {
+                const slackPayload = JSON.stringify({
+                  text: `*SEO Traffic Drop Report — ${today}*\n${drops.length} pages dropped >25% clicks (showing top ${diagnosed.length})`,
+                  blocks: [
+                    {
+                      type: 'header',
+                      text: { type: 'plain_text', text: `SEO Traffic Drop Report — ${today}` },
+                    },
+                    {
+                      type: 'section',
+                      text: {
+                        type: 'mrkdwn',
+                        text: `*${drops.length} pages* dropped >25% in clicks vs prior 28 days.\n\n*Top ${diagnosed.length} drops:*\n${slackLines || '_No significant drops found_'}`,
+                      },
+                    },
+                  ],
+                });
+                await makeRequest(slackWebhook, {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    'Content-Length': Buffer.byteLength(slackPayload),
+                  },
+                }, slackPayload);
+                console.log('Slack notification sent.');
+              } catch (err) {
+                console.log(`Slack error: ${err.message}`);
+              }
+            }
+
+            if (diagnosed.length === 0) {
+              console.log('No significant traffic drops found. All good!');
+            }
+          }
+
+          main().catch(err => { console.error(err); process.exit(1); });
+          EOF

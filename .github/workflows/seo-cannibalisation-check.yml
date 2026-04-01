@@ -1,0 +1,126 @@
+name: SEO Keyword Cannibalisation Check
+
+on:
+  schedule:
+    - cron: '30 3 * * 3'
+  workflow_dispatch:
+
+jobs:
+  cannibalisation-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm install googleapis
+
+      - name: Decode GSC service account key
+        run: echo "$GSC_SERVICE_ACCOUNT_KEY" | base64 -d > /tmp/gsc-key.json
+        env:
+          GSC_SERVICE_ACCOUNT_KEY: ${{ secrets.GSC_SERVICE_ACCOUNT_KEY }}
+
+      - name: Run cannibalisation analysis
+        id: cannibalise
+        env:
+          GSC_SITE_URL: ${{ secrets.GSC_SITE_URL }}
+        run: |
+          node << 'EOF'
+          const { google } = require('googleapis');
+          const fs = require('fs');
+
+          async function main() {
+            const key = JSON.parse(fs.readFileSync('/tmp/gsc-key.json', 'utf8'));
+            const auth = new google.auth.GoogleAuth({
+              credentials: key,
+              scopes: ['https://www.googleapis.com/auth/webmasters.readonly'],
+            });
+            const authClient = await auth.getClient();
+            const sc = google.searchconsole({ version: 'v1', auth: authClient });
+            const siteUrl = process.env.GSC_SITE_URL;
+
+            const endDate = new Date();
+            const startDate = new Date();
+            startDate.setDate(startDate.getDate() - 28);
+            const fmt = d => d.toISOString().slice(0, 10);
+
+            const res = await sc.searchanalytics.query({
+              siteUrl,
+              requestBody: {
+                startDate: fmt(startDate),
+                endDate: fmt(endDate),
+                dimensions: ['query', 'page'],
+                rowLimit: 5000,
+              },
+            });
+
+            const rows = res.data.rows || [];
+
+            // Group by query
+            const byQuery = {};
+            for (const row of rows) {
+              const [query, page] = row.keys;
+              if (!byQuery[query]) byQuery[query] = [];
+              byQuery[query].push({
+                page,
+                clicks: row.clicks,
+                impressions: row.impressions,
+                position: row.position,
+              });
+            }
+
+            // Find cannibalisation: 2+ pages, >100 total impressions
+            const conflicts = [];
+            for (const [query, pages] of Object.entries(byQuery)) {
+              if (pages.length < 2) continue;
+              const totalImpressions = pages.reduce((s, p) => s + p.impressions, 0);
+              if (totalImpressions <= 100) continue;
+              conflicts.push({ query, pages, totalImpressions });
+            }
+
+            conflicts.sort((a, b) => b.totalImpressions - a.totalImpressions);
+            const top20 = conflicts.slice(0, 20);
+
+            const lines = top20.map((c, i) => {
+              const pageLines = c.pages.map(p =>
+                `     - ${p.page} | clicks: ${p.clicks} | impressions: ${p.impressions} | pos: ${p.position.toFixed(1)}`
+              ).join('\n');
+              return `${i + 1}. Query: "${c.query}" (${c.totalImpressions} total impressions)\n${pageLines}`;
+            }).join('\n\n');
+
+            const output = top20.length > 0
+              ? `Found ${conflicts.length} cannibalisation conflicts. Top 20:\n\n${lines}`
+              : 'No keyword cannibalisation detected this week.';
+
+            fs.writeFileSync('/tmp/cannibalise-output.txt', output);
+            console.log(output);
+          }
+
+          main().catch(e => { console.error(e); process.exit(1); });
+          EOF
+
+      - name: Create Paperclip issue
+        id: paperclip
+        run: |
+          REPORT=$(cat /tmp/cannibalise-output.txt)
+          RESPONSE=$(curl -s -X POST "${{ secrets.PAPERCLIP_API_URL }}/v1/companies/f0a0b0c0-0001-4000-8000-000000000001/issues" \
+            -H "Authorization: Bearer ${{ secrets.PAPERCLIP_API_KEY }}" \
+            -H "Content-Type: application/json" \
+            -d "$(jq -n --arg title "SEO Keyword Cannibalisation Report - $(date +'%Y-%m-%d')" --arg body "$REPORT" '{title: $title, body: $body, priority: "medium"}')")
+          echo "issue_id=$(echo $RESPONSE | jq -r '.id // empty')" >> $GITHUB_OUTPUT
+
+      - name: Wake up Paperclip agent
+        run: |
+          curl -s -X POST "${{ secrets.PAPERCLIP_API_URL }}/v1/companies/f0a0b0c0-0001-4000-8000-000000000001/agents/f1000001-0002-4000-8000-000000000001/wakeup" \
+            -H "Authorization: Bearer ${{ secrets.PAPERCLIP_API_KEY }}" \
+            -H "Content-Type: application/json" \
+            -d "$(jq -n --arg issue_id "${{ steps.paperclip.outputs.issue_id }}" '{issue_id: $issue_id, context: "SEO keyword cannibalisation analysis complete. Please review conflicts and recommend consolidation or differentiation strategy."}')"
+
+      - name: Send Slack notification
+        run: |
+          REPORT=$(cat /tmp/cannibalise-output.txt)
+          curl -s -X POST "${{ secrets.SLACK_WEBHOOK_URL }}" \
+            -H "Content-Type: application/json" \
+            -d "$(jq -n --arg text "*SEO Cannibalisation Check* — $(date +'%Y-%m-%d')\n\`\`\`${REPORT}\`\`\`\n*Paperclip Issue:* ${{ steps.paperclip.outputs.issue_id }}" '{text: $text}')"

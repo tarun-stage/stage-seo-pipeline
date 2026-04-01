@@ -1,0 +1,121 @@
+name: SEO Sitemap Resubmit to Google
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'sitemap*.xml'
+  workflow_dispatch:
+    inputs:
+      sitemap_url:
+        description: 'Sitemap URL to submit (leave blank to use default)'
+        required: false
+        default: ''
+
+jobs:
+  sitemap-resubmit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm install googleapis
+
+      - name: Decode GSC service account key
+        run: echo "$GSC_SERVICE_ACCOUNT_KEY" | base64 -d > /tmp/gsc-key.json
+        env:
+          GSC_SERVICE_ACCOUNT_KEY: ${{ secrets.GSC_SERVICE_ACCOUNT_KEY }}
+
+      - name: Submit sitemap(s) to Google
+        id: submit
+        env:
+          GSC_SITE_URL: ${{ secrets.GSC_SITE_URL }}
+          INPUT_SITEMAP_URL: ${{ github.event.inputs.sitemap_url }}
+        run: |
+          node << 'EOF'
+          const { google } = require('googleapis');
+          const fs = require('fs');
+
+          async function submitSitemap(webmasters, siteUrl, feedpath) {
+            try {
+              await webmasters.sitemaps.submit({ siteUrl, feedpath });
+              console.log(`Submitted: ${feedpath}`);
+              return { url: feedpath, status: 'ok' };
+            } catch (err) {
+              console.error(`Failed to submit ${feedpath}:`, err.message);
+              return { url: feedpath, status: 'error', error: err.message };
+            }
+          }
+
+          async function main() {
+            const key = JSON.parse(fs.readFileSync('/tmp/gsc-key.json', 'utf8'));
+            const auth = new google.auth.GoogleAuth({
+              credentials: key,
+              scopes: ['https://www.googleapis.com/auth/webmasters'],
+            });
+            const authClient = await auth.getClient();
+            const webmasters = google.webmasters({ version: 'v3', auth: authClient });
+            const siteUrl = process.env.GSC_SITE_URL;
+
+            // Determine sitemaps to submit
+            let sitemaps = [];
+            const inputUrl = process.env.INPUT_SITEMAP_URL;
+            if (inputUrl && inputUrl.trim() !== '') {
+              sitemaps = [inputUrl.trim()];
+            } else {
+              // Derive base URL from GSC_SITE_URL (strip trailing slash)
+              const base = siteUrl.replace(/\/$/, '');
+              sitemaps = [
+                `${base}/sitemap.xml`,
+                `${base}/sitemap_index.xml`,
+              ];
+            }
+
+            const results = [];
+            for (const sitemap of sitemaps) {
+              const result = await submitSitemap(webmasters, siteUrl, sitemap);
+              results.push(result);
+            }
+
+            const successUrls = results.filter(r => r.status === 'ok').map(r => r.url);
+            const failedUrls = results.filter(r => r.status === 'error').map(r => `${r.url} (${r.error})`);
+
+            let summary = '';
+            if (successUrls.length > 0) {
+              summary += `Submitted successfully:\n${successUrls.map(u => `  - ${u}`).join('\n')}`;
+            }
+            if (failedUrls.length > 0) {
+              summary += `\nFailed to submit:\n${failedUrls.map(u => `  - ${u}`).join('\n')}`;
+            }
+
+            fs.writeFileSync('/tmp/sitemap-results.json', JSON.stringify({ results, summary, successUrls, failedUrls }));
+            console.log(summary);
+          }
+
+          main().catch(e => { console.error(e); process.exit(1); });
+          EOF
+
+      - name: Send Slack notification
+        run: |
+          DATA=$(cat /tmp/sitemap-results.json)
+          SUCCESS_URLS=$(echo "$DATA" | jq -r '.successUrls | join(", ")')
+          FAILED_URLS=$(echo "$DATA" | jq -r '.failedUrls | join(", ")')
+          SUMMARY=$(echo "$DATA" | jq -r '.summary')
+
+          if [ -n "$SUCCESS_URLS" ]; then
+            MSG="Sitemap resubmitted to Google :white_check_mark: — URL: ${SUCCESS_URLS}"
+          else
+            MSG="Sitemap resubmission attempted but failed — ${FAILED_URLS}"
+          fi
+
+          if [ -n "$FAILED_URLS" ]; then
+            MSG="${MSG}\nFailed: ${FAILED_URLS}"
+          fi
+
+          curl -s -X POST "${{ secrets.SLACK_WEBHOOK_URL }}" \
+            -H "Content-Type: application/json" \
+            -d "$(jq -n --arg text "*SEO Sitemap Resubmit* — $(date +'%Y-%m-%d %H:%M UTC')\n${MSG}" '{text: $text}')"

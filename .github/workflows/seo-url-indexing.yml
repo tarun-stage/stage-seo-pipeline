@@ -1,0 +1,220 @@
+name: SEO URL Indexing
+
+on:
+  workflow_dispatch:
+    inputs:
+      urls:
+        description: 'Comma-separated list of URLs to submit to Google Indexing API'
+        required: true
+        type: string
+  push:
+    branches:
+      - main
+    paths:
+      - 'seo/content/**'
+
+jobs:
+  submit-urls:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Decode GSC service account key
+        run: echo "$GSC_SERVICE_ACCOUNT_KEY" | base64 -d > /tmp/gsc-key.json
+        env:
+          GSC_SERVICE_ACCOUNT_KEY: ${{ secrets.GSC_SERVICE_ACCOUNT_KEY }}
+
+      - name: Install dependencies
+        run: npm install googleapis
+
+      - name: Submit URLs to Google Indexing API
+        id: submit
+        env:
+          INPUT_URLS: ${{ github.event.inputs.urls }}
+          PAPERCLIP_API_URL: ${{ secrets.PAPERCLIP_API_URL }}
+          PAPERCLIP_API_KEY: ${{ secrets.PAPERCLIP_API_KEY }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+        run: |
+          node << 'EOF'
+          const { google } = require('googleapis');
+          const fs = require('fs');
+          const path = require('path');
+
+          const COMPANY_ID = 'f0a0b0c0-0001-4000-8000-000000000001';
+          const AGENT_ID   = 'f1000001-0002-4000-8000-000000000001';
+
+          async function makeRequest(urlStr, options, body) {
+            const parsedUrl = new URL(urlStr);
+            const isHttps = parsedUrl.protocol === 'https:';
+            const mod = isHttps ? require('https') : require('http');
+            return new Promise((resolve, reject) => {
+              const req = mod.request(urlStr, options, (res) => {
+                let data = '';
+                res.on('data', chunk => { data += chunk; });
+                res.on('end', () => resolve({ status: res.statusCode, body: data }));
+              });
+              req.on('error', reject);
+              if (body) req.write(typeof body === 'string' ? body : JSON.stringify(body));
+              req.end();
+            });
+          }
+
+          async function main() {
+            // Determine URLs to submit
+            let urls = [];
+            const eventName = process.env.GITHUB_EVENT_NAME || 'workflow_dispatch';
+
+            if (eventName === 'push') {
+              const pendingFile = 'seo/content/pending-index.txt';
+              if (fs.existsSync(pendingFile)) {
+                const content = fs.readFileSync(pendingFile, 'utf8');
+                urls = content.split('\n').map(u => u.trim()).filter(Boolean);
+              }
+            } else {
+              const rawUrls = process.env.INPUT_URLS || '';
+              urls = rawUrls.split(',').map(u => u.trim()).filter(Boolean);
+            }
+
+            if (urls.length === 0) {
+              console.log('No URLs to submit.');
+              process.exit(0);
+            }
+
+            console.log(`Submitting ${urls.length} URL(s): ${urls.join(', ')}`);
+
+            // Authenticate with Google
+            const auth = new google.auth.GoogleAuth({
+              keyFile: '/tmp/gsc-key.json',
+              scopes: ['https://www.googleapis.com/auth/indexing'],
+            });
+            const authClient = await auth.getClient();
+            const accessToken = (await authClient.getAccessToken()).token;
+
+            // Submit each URL
+            const results = [];
+            for (const url of urls) {
+              try {
+                const body = JSON.stringify({ url, type: 'URL_UPDATED' });
+                const res = await makeRequest(
+                  'https://indexing.googleapis.com/v3/urlNotifications:publish',
+                  {
+                    method: 'POST',
+                    headers: {
+                      'Authorization': `Bearer ${accessToken}`,
+                      'Content-Type': 'application/json',
+                      'Content-Length': Buffer.byteLength(body),
+                    },
+                  },
+                  body
+                );
+                const ok = res.status >= 200 && res.status < 300;
+                results.push({ url, success: ok, status: res.status, body: res.body });
+                console.log(`${ok ? 'OK' : 'FAIL'} [${res.status}] ${url}`);
+              } catch (err) {
+                results.push({ url, success: false, status: 0, body: err.message });
+                console.log(`ERROR ${url}: ${err.message}`);
+              }
+            }
+
+            const successCount = results.filter(r => r.success).length;
+            const failCount    = results.length - successCount;
+
+            // Build results text
+            const resultLines = results.map(r =>
+              `${r.success ? '✅' : '❌'} ${r.url} (HTTP ${r.status})`
+            ).join('\n');
+
+            const issueBody = `## URL Indexing Submission Results\n\n` +
+              `**Total:** ${results.length} | **Success:** ${successCount} | **Failed:** ${failCount}\n\n` +
+              `### Details\n${resultLines}\n\n` +
+              `**Triggered by:** ${eventName}\n` +
+              `**Run:** https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}`;
+
+            // Create Paperclip issue
+            const paperclipUrl = process.env.PAPERCLIP_API_URL;
+            const paperclipKey = process.env.PAPERCLIP_API_KEY;
+            if (paperclipUrl && paperclipKey) {
+              try {
+                const issuePayload = {
+                  company_id: COMPANY_ID,
+                  agent_id:   AGENT_ID,
+                  title:      `SEO URL Indexing: ${successCount}/${results.length} submitted successfully`,
+                  body:       issueBody,
+                };
+                const createIssueUrl = `${paperclipUrl.replace(/\/$/, '')}/api/v1/issues`;
+                const createRes = await makeRequest(createIssueUrl, {
+                  method: 'POST',
+                  headers: {
+                    'Authorization': `Bearer ${paperclipKey}`,
+                    'Content-Type': 'application/json',
+                    'Content-Length': Buffer.byteLength(JSON.stringify(issuePayload)),
+                  },
+                }, issuePayload);
+                console.log(`Paperclip issue created: ${createRes.status} ${createRes.body}`);
+
+                // Wake agent
+                let issueId = null;
+                try { issueId = JSON.parse(createRes.body).id; } catch {}
+                if (issueId) {
+                  const wakeUrl = `${paperclipUrl.replace(/\/$/, '')}/api/v1/agents/${AGENT_ID}/wake`;
+                  const wakeRes = await makeRequest(wakeUrl, {
+                    method: 'POST',
+                    headers: {
+                      'Authorization': `Bearer ${paperclipKey}`,
+                      'Content-Type': 'application/json',
+                      'Content-Length': Buffer.byteLength(JSON.stringify({ issue_id: issueId })),
+                    },
+                  }, { issue_id: issueId });
+                  console.log(`Agent wake: ${wakeRes.status}`);
+                }
+              } catch (err) {
+                console.log(`Paperclip error: ${err.message}`);
+              }
+            }
+
+            // Post Slack notification
+            const slackWebhook = process.env.SLACK_WEBHOOK_URL;
+            if (slackWebhook) {
+              try {
+                const slackBody = JSON.stringify({
+                  text: `*SEO URL Indexing Complete* — ${successCount}/${results.length} URLs submitted successfully`,
+                  blocks: [
+                    {
+                      type: 'section',
+                      text: {
+                        type: 'mrkdwn',
+                        text: `*SEO URL Indexing Complete*\n✅ Success: ${successCount} | ❌ Failed: ${failCount} | Total: ${results.length}`,
+                      },
+                    },
+                    {
+                      type: 'section',
+                      text: {
+                        type: 'mrkdwn',
+                        text: resultLines || '_No URLs processed_',
+                      },
+                    },
+                  ],
+                });
+                await makeRequest(slackWebhook, {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    'Content-Length': Buffer.byteLength(slackBody),
+                  },
+                }, slackBody);
+                console.log('Slack notification sent.');
+              } catch (err) {
+                console.log(`Slack error: ${err.message}`);
+              }
+            }
+          }
+
+          main().catch(err => { console.error(err); process.exit(1); });
+          EOF
