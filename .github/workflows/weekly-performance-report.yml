@@ -1,0 +1,212 @@
+name: Weekly SEO/GEO/ASO Performance Report
+
+on:
+  schedule:
+    - cron: '30 2 * * 1'  # Every Monday 8:00 AM IST (2:30 AM UTC)
+  workflow_dispatch:
+
+jobs:
+  weekly-report:
+    name: Generate & Post Weekly Report
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Setup keys
+        run: |
+          echo "${{ secrets.GSC_SERVICE_ACCOUNT_KEY }}" | base64 -d > /tmp/gsc-key.json
+          echo "${{ secrets.PLAY_STORE_JSON_KEY_B64 }}" | base64 -d > /tmp/play-store-key.json
+
+      - name: Install dependencies
+        run: npm install googleapis
+
+      - name: Generate & post weekly report
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          GSC_SITE_URL: ${{ secrets.GSC_SITE_URL }}
+        run: |
+          node << 'SCRIPT'
+          const { google } = require('googleapis');
+          const fs = require('fs');
+          const https = require('https');
+
+          async function main() {
+            const date = new Date();
+            const weekStr = date.toISOString().split('T')[0];
+
+            // ─── GSC Auth ───────────────────────────────────────────
+            const gscAuth = new google.auth.GoogleAuth({
+              credentials: JSON.parse(fs.readFileSync('/tmp/gsc-key.json', 'utf8')),
+              scopes: ['https://www.googleapis.com/auth/webmasters.readonly'],
+            });
+            const sc = google.searchconsole({ version: 'v1', auth: gscAuth });
+            const siteUrl = process.env.GSC_SITE_URL;
+
+            // ─── Play Store Auth ─────────────────────────────────────
+            const playAuth = new google.auth.GoogleAuth({
+              credentials: JSON.parse(fs.readFileSync('/tmp/play-store-key.json', 'utf8')),
+              scopes: ['https://www.googleapis.com/auth/androidpublisher'],
+            });
+            const play = google.androidpublisher({ version: 'v3', auth: playAuth });
+
+            // ─── Date ranges ─────────────────────────────────────────
+            const fmt = d => d.toISOString().split('T')[0];
+            const today = new Date();
+            const d7  = new Date(today); d7.setDate(today.getDate() - 7);
+            const d14 = new Date(today); d14.setDate(today.getDate() - 14);
+
+            // ─── SEO: This week vs last week ─────────────────────────
+            const [thisWeek, lastWeek] = await Promise.all([
+              sc.searchanalytics.query({ siteUrl, requestBody: {
+                startDate: fmt(d7), endDate: fmt(today),
+                dimensions: ['page'], rowLimit: 25,
+              }}),
+              sc.searchanalytics.query({ siteUrl, requestBody: {
+                startDate: fmt(d14), endDate: fmt(d7),
+                dimensions: ['page'], rowLimit: 25,
+              }}),
+            ]);
+
+            const thisRows = thisWeek.data.rows || [];
+            const lastRows = lastWeek.data.rows || [];
+
+            const sum = rows => rows.reduce((a, r) => ({
+              clicks: a.clicks + r.clicks,
+              impressions: a.impressions + r.impressions,
+              position: a.position + r.position * r.impressions,
+              imp_total: a.imp_total + r.impressions,
+              ctr: 0,
+            }), { clicks: 0, impressions: 0, position: 0, imp_total: 0, ctr: 0 });
+
+            const tw = sum(thisRows);
+            const lw = sum(lastRows);
+            tw.ctr = tw.impressions ? (tw.clicks / tw.impressions * 100) : 0;
+            lw.ctr = lw.impressions ? (lw.clicks / lw.impressions * 100) : 0;
+            tw.avgPos = tw.imp_total ? tw.position / tw.imp_total : 0;
+            lw.avgPos = lw.imp_total ? lw.position / lw.imp_total : 0;
+
+            const pct = (a, b) => b === 0 ? 0 : ((a - b) / b * 100);
+            const arrow = (n) => n > 0 ? `↑${Math.abs(n).toFixed(1)}%` : n < 0 ? `↓${Math.abs(n).toFixed(1)}%` : '→0%';
+            const posArrow = (n) => n < 0 ? `↑ improved ${Math.abs(n).toFixed(1)}` : n > 0 ? `↓ dropped ${Math.abs(n).toFixed(1)}` : '→ stable';
+
+            const clickChange = pct(tw.clicks, lw.clicks);
+            const impChange = pct(tw.impressions, lw.impressions);
+            const ctrChange = pct(tw.ctr, lw.ctr);
+            const posChange = tw.avgPos - lw.avgPos;
+
+            // Top gaining pages
+            const thisMap = Object.fromEntries(thisRows.map(r => [r.keys[0], r]));
+            const lastMap = Object.fromEntries(lastRows.map(r => [r.keys[0], r]));
+            const gains = Object.keys(thisMap).map(url => ({
+              url, gain: (thisMap[url].clicks || 0) - (lastMap[url]?.clicks || 0),
+            })).filter(x => x.gain > 0).sort((a,b) => b.gain - a.gain).slice(0, 3);
+
+            const seoEmoji = clickChange >= 0 ? '📈' : '📉';
+
+            // ─── GEO: robots.txt + llms.txt check ───────────────────
+            const checkUrl = (url) => new Promise(resolve => {
+              https.get(url, res => {
+                let d = '';
+                res.on('data', c => d += c);
+                res.on('end', () => resolve({ status: res.statusCode, body: d }));
+              }).on('error', () => resolve({ status: 0, body: '' }));
+            });
+
+            const [robots, llms] = await Promise.all([
+              checkUrl('https://stage.in/robots.txt'),
+              checkUrl('https://stage.in/llms.txt'),
+            ]);
+
+            const aiBots = ['PerplexityBot','GPTBot','ClaudeBot','anthropic-ai','Google-Extended'];
+            const blocked = aiBots.filter(bot => {
+              const idx = robots.body.indexOf(`User-agent: ${bot}`);
+              if (idx === -1) return false;
+              const snippet = robots.body.slice(idx, idx + 100);
+              return snippet.includes('Disallow: /');
+            });
+
+            const geoStatus = blocked.length === 0 ? '✅ All AI bots allowed' : `⚠️ Blocked: ${blocked.join(', ')}`;
+            const llmsStatus = llms.status === 200 ? '✅ Present' : '❌ Missing';
+
+            // ─── ASO: Play Store reviews ─────────────────────────────
+            const reviewsRes = await play.reviews.list({ packageName: 'in.stage', maxResults: 100 });
+            const reviews = reviewsRes.data.reviews || [];
+            const now = Date.now();
+            const wk = now - 7 * 86400000;
+            const wk2 = now - 14 * 86400000;
+
+            const inWindow = (r, from, to) => {
+              const ts = parseInt((r.comments?.[0]?.userComment?.lastModified?.seconds) || '0') * 1000;
+              return ts >= from && ts < to;
+            };
+            const twReviews = reviews.filter(r => inWindow(r, wk, now));
+            const lwReviews = reviews.filter(r => inWindow(r, wk2, wk));
+
+            const avgRating = arr => arr.length
+              ? (arr.reduce((s,r) => s + (r.comments?.[0]?.userComment?.starRating || 0), 0) / arr.length).toFixed(2)
+              : 'N/A';
+
+            const twRating = avgRating(twReviews);
+            const lwRating = avgRating(lwReviews);
+            const twBad = twReviews.filter(r => (r.comments?.[0]?.userComment?.starRating || 5) <= 3).length;
+            const twRatingNum = parseFloat(twRating);
+            const lwRatingNum = parseFloat(lwRating);
+            const ratingDiff = (!isNaN(twRatingNum) && !isNaN(lwRatingNum))
+              ? (twRatingNum - lwRatingNum).toFixed(2) : null;
+            const asoEmoji = ratingDiff === null ? '⭐' : parseFloat(ratingDiff) >= 0 ? '📈' : '📉';
+
+            // ─── Build Slack message ─────────────────────────────────
+            const lines = [
+              `*Weekly Performance Report — ${weekStr}* 📊`,
+              `_stage.in · Google Play · stage.in AI search_`,
+              ``,
+              `━━━━━━━━━━━━━━━━━━━━━━`,
+              `${seoEmoji} *SEO — Google Search*`,
+              `━━━━━━━━━━━━━━━━━━━━━━`,
+              `• Clicks: *${tw.clicks.toLocaleString()}* ${arrow(clickChange)} vs last week (${lw.clicks.toLocaleString()})`,
+              `• Impressions: *${tw.impressions.toLocaleString()}* ${arrow(impChange)}`,
+              `• Avg CTR: *${tw.ctr.toFixed(2)}%* ${arrow(ctrChange)}`,
+              `• Avg Position: *${tw.avgPos.toFixed(1)}* ${posArrow(posChange)}`,
+              gains.length > 0 ? `• Top gainers: ${gains.map(g => `+${g.gain} clicks on ${g.url.replace('https://stage.in','')}`).join(' | ')}` : '',
+              ``,
+              `━━━━━━━━━━━━━━━━━━━━━━`,
+              `🤖 *GEO — AI Search Visibility*`,
+              `━━━━━━━━━━━━━━━━━━━━━━`,
+              `• robots.txt: ${geoStatus}`,
+              `• /llms.txt: ${llmsStatus}`,
+              blocked.length > 0 ? `• ⚠️ Action needed: unblock AI bots in robots.txt` : `• No action needed`,
+              ``,
+              `━━━━━━━━━━━━━━━━━━━━━━`,
+              `${asoEmoji} *ASO — Google Play Store*`,
+              `━━━━━━━━━━━━━━━━━━━━━━`,
+              `• This week rating: *${twRating}⭐* (${twReviews.length} reviews)`,
+              `• Last week rating: *${lwRating}⭐* (${lwReviews.length} reviews)`,
+              ratingDiff !== null ? `• Rating change: ${parseFloat(ratingDiff) >= 0 ? `↑ +${ratingDiff}` : `↓ ${ratingDiff}`}` : '',
+              `• Negative reviews this week: ${twBad} (1-3 stars)`,
+              ``,
+              `━━━━━━━━━━━━━━━━━━━━━━`,
+              `_Automated by SEO/ASO Pipeline · Every Monday 8 AM IST_`,
+            ].filter(l => l !== '').join('\n');
+
+            // ─── Post to Slack ───────────────────────────────────────
+            const payload = JSON.stringify({ text: lines });
+            const url = new URL(process.env.SLACK_WEBHOOK_URL);
+            await new Promise((resolve, reject) => {
+              const req = https.request({
+                hostname: url.hostname,
+                path: url.pathname,
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) },
+              }, res => {
+                res.on('data', () => {});
+                res.on('end', () => { console.log(`Slack [${res.statusCode}]`); resolve(); });
+              });
+              req.on('error', reject);
+              req.write(payload);
+              req.end();
+            });
+
+            console.log(`Done — SEO clicks: ${tw.clicks}, ASO rating: ${twRating}, GEO: ${blocked.length} bots blocked`);
+          }
+
+          main().catch(e => { console.error(e.message); process.exit(1); });
+          SCRIPT
