@@ -1,6 +1,6 @@
 import { runTracker, runTrackerWithData } from './index.js';
 import { getDatabase } from './db/schema.js';
-import { getTrends, getTrendCounts } from './db/repository.js';
+import { getTrends, getTrendCounts, getKeywordClusters, detectCannibalization } from './db/repository.js';
 import type { GscAuthConfig, KeywordRecord } from './models/types.js';
 
 async function main() {
@@ -56,15 +56,66 @@ async function main() {
       break;
     }
 
+    case 'cluster': {
+      const dbPath = getArgValue(args, '--db') || 'gsc_keywords.db';
+      const limit = getArgValue(args, '--limit') ? parseInt(getArgValue(args, '--limit')!, 10) : 200;
+      const db = await getDatabase(dbPath);
+      const clusters = getKeywordClusters(db, limit);
+
+      console.log(`\n=== Keyword Clusters (top ${clusters.length} topics) ===\n`);
+      for (const cluster of clusters.slice(0, 20)) {
+        const dialectTag = cluster.dialect ? ` [${cluster.dialect}]` : '';
+        console.log(`📦 "${cluster.topic}"${dialectTag} — ${cluster.totalClicks} clicks, avg pos ${cluster.avgPosition.toFixed(1)}`);
+        for (const kw of cluster.keywords.slice(0, 5)) {
+          console.log(`   · ${kw}`);
+        }
+        if (cluster.keywords.length > 5) {
+          console.log(`   … and ${cluster.keywords.length - 5} more`);
+        }
+        console.log();
+      }
+      console.log(`Total clusters: ${clusters.length}`);
+      break;
+    }
+
+    case 'cannibalization': {
+      const dbPath = getArgValue(args, '--db') || 'gsc_keywords.db';
+      const db = await getDatabase(dbPath);
+      const pairs = detectCannibalization(db);
+
+      if (pairs.length === 0) {
+        console.log('✓ No cannibalization signals detected.');
+        break;
+      }
+
+      console.log(`\n=== Keyword Cannibalization Signals ===\n`);
+      console.log(`Found ${pairs.length} keywords with low CTR at good positions (possible cannibalization):\n`);
+
+      const byRisk = { high: pairs.filter(p => p.risk === 'high'), medium: pairs.filter(p => p.risk === 'medium'), low: pairs.filter(p => p.risk === 'low') };
+      for (const [risk, items] of Object.entries(byRisk)) {
+        if (!items.length) continue;
+        console.log(`[${risk.toUpperCase()} risk] ${items.length} keywords:`);
+        for (const item of items) {
+          const page = item.pages[0];
+          console.log(`  · "${item.keyword}" — pos ${page.position.toFixed(1)}, ${page.clicks} clicks`);
+        }
+        console.log();
+      }
+      console.log('Fix: Consolidate content targeting the same keyword onto one canonical page.');
+      break;
+    }
+
     case 'help':
     default:
       console.log(`
 Usage: gsc-keyword-tracker <command> [options]
 
 Commands:
-  track     Fetch keywords from GSC and analyze trends (default)
-  trends    Display stored keyword trends
-  help      Show this help message
+  track           Fetch keywords from GSC and analyze trends (default)
+  trends          Display stored keyword trends
+  cluster         Group keywords into topic clusters
+  cannibalization Detect keywords with cannibalization signals
+  help            Show this help message
 
 Options (track):
   --site <url>       GSC site URL (or set GSC_SITE_URL env var)

@@ -1,0 +1,177 @@
+name: SEO Schema Audit
+
+on:
+  schedule:
+    - cron: '30 4 * * 3'  # Every Wednesday 10:00 AM IST (4:30 AM UTC)
+  workflow_dispatch:
+
+jobs:
+  schema-audit:
+    name: Schema Validation & Generation
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Check for existing schema audit today
+        id: dedup
+        env:
+          PAPERCLIP_API_URL: ${{ secrets.PAPERCLIP_API_URL }}
+          PAPERCLIP_API_KEY: ${{ secrets.PAPERCLIP_API_KEY }}
+        run: |
+          DATE=$(date +%Y-%m-%d)
+          echo "date=${DATE}" >> $GITHUB_OUTPUT
+          EXISTING=$(curl -s \
+            "$PAPERCLIP_API_URL/api/companies/f0a0b0c0-0001-4000-8000-000000000001/issues?status=todo&status=in_progress" \
+            -H "Authorization: Bearer $PAPERCLIP_API_KEY" | \
+            node -e "
+              const d = JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));
+              const arr = Array.isArray(d) ? d : (d.issues || d.data || []);
+              console.log(arr.some(i => i.title && i.title.includes('Schema Audit') && i.title.includes('${DATE}')) ? 'yes' : 'no');
+            " 2>/dev/null || echo "no")
+          echo "exists=${EXISTING}" >> $GITHUB_OUTPUT
+
+      - name: Create Paperclip schema audit task
+        if: steps.dedup.outputs.exists != 'yes'
+        env:
+          PAPERCLIP_API_URL: ${{ secrets.PAPERCLIP_API_URL }}
+          PAPERCLIP_API_KEY: ${{ secrets.PAPERCLIP_API_KEY }}
+        run: |
+          DATE=${{ steps.dedup.outputs.date }}
+          COMPANY_ID="f0a0b0c0-0001-4000-8000-000000000001"
+          AGENT_ID="f1000001-0002-4000-8000-000000000001"
+
+          cat > /tmp/build_schema_desc.js << 'NODESCRIPT'
+          const date = process.env.RUN_DATE;
+
+          const desc = [
+            '## Schema Audit & Generation — stage.in (' + date + ')',
+            '',
+            '### Objective',
+            'Ensure ALL Stage.in pages have correct JSON-LD schema markup.',
+            'Schema is the highest-ROI SEO fix for an OTT platform.',
+            '',
+            '### Step 0: Read seo-program.md FIRST (autoresearch loop)',
+            'Before doing ANYTHING else:',
+            '1. Read `seo-program.md` from vatsanatech/stage-seo-pipeline repo (main branch)',
+            '2. Check Current Priorities — schema tasks at the top',
+            '3. Read Schema Rules section + High Confidence Lessons',
+            '4. Read Failure Log — do NOT repeat failed schema approaches',
+            '',
+            '### Before You Start',
+            '1. Scan key page types first to understand current schema state',
+            '2. Plan which schemas need adding vs fixing before making changes',
+            '',
+            '### Step 1: Schema Audit',
+            'Check these page types and schemas:',
+            '',
+            '| Page Type | URL Pattern | Required Schema | Impact |',
+            '|-----------|-------------|-----------------|--------|',
+            '| Watch/Player | /watch/* | VideoObject | Google Watch button |',
+            '| Movies listing | /movies, /hi/*/movies | Movie or ItemList | Rich results |',
+            '| Shows listing | /shows, /hi/*/shows | TVSeries | Rich results |',
+            '| Dialect homepage | /hi/haryanvi/, /hi/rajasthani/, etc. | FAQPage | +40% AI citation |',
+            '| Homepage | / | Organization + WebSite + SearchAction | Knowledge Graph |',
+            '| All pages | * | BreadcrumbList | Navigation rich results |',
+            '| Key landing pages | /movies, /shows, / | Speakable | Voice/AI citation |',
+            '',
+            'For each page type:',
+            '1. Check if schema exists: document.querySelectorAll(\'script[type="application/ld+json"]\')',
+            '2. Validate required fields are present',
+            '3. Check @graph pattern is used when multiple schemas on same page',
+            '',
+            '### Step 2: Fix all missing/broken schemas',
+            '1. git checkout main && git pull origin main (in vatsanatech/stage-webapp)',
+            '2. Create branch: fix/schema-audit-' + date,
+            '3. Add JSON-LD schema in layout.tsx or page.tsx files',
+            '4. For VideoObject on /watch/* — add in the watch page component',
+            '5. For FAQPage on dialect pages — use DIALECT_FAQS from @stage-seo/schema-generator',
+            '6. For Organization/WebSite — add to root layout.tsx',
+            '7. For BreadcrumbList — add to each page layout with correct breadcrumb trail',
+            '8. Run `npx prettier --write .` on changed files',
+            '9. Commit: `fix(seo): add JSON-LD schema markup ' + date + '`',
+            '10. Raise PR to vatsanatech/stage-webapp against main',
+            '',
+            '### Schema code examples',
+            '',
+            '**VideoObject (add to /watch/[id]/page.tsx):**',
+            '```tsx',
+            'export default async function WatchPage({ params }) {',
+            '  const video = await getVideo(params.id);',
+            '  const schema = {',
+            '    "@context": "https://schema.org",',
+            '    "@type": "VideoObject",',
+            '    "name": video.title,',
+            '    "description": video.description,',
+            '    "thumbnailUrl": video.thumbnail,',
+            '    "uploadDate": video.publishDate,',
+            '    "duration": video.duration,',
+            '    "potentialAction": { "@type": "WatchAction", "target": `https://stage.in/watch/${params.id}` }',
+            '  };',
+            '  return (',
+            '    <>',
+            '      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(schema) }} />',
+            '      {/* rest of page */}',
+            '    </>',
+            '  );',
+            '}',
+            '```',
+            '',
+            '**FAQPage (add to /hi/[dialect]/page.tsx):**',
+            '```tsx',
+            'const faqSchema = {',
+            '  "@context": "https://schema.org",',
+            '  "@type": "FAQPage",',
+            '  "mainEntity": [',
+            '    {',
+            '      "@type": "Question",',
+            '      "name": "Where can I watch Haryanvi movies online?",',
+            '      "acceptedAnswer": { "@type": "Answer", "text": "Stage.in has the largest collection..." }',
+            '    }',
+            '    // add 3-5 FAQs per dialect',
+            '  ]',
+            '};',
+            '```',
+            '',
+            '### Step 3: Slack notification',
+            'curl -X POST "$SLACK_WEBHOOK_URL" -H "Content-Type: application/json" -d \'{"text": "*Schema Audit — ' + date + '*\\nHi <@U07A91AB7GW>, schema audit completed. PR: <PR_URL>\\n\\n*Schemas added:* <count>\\n*VideoObject:* <count pages> | *FAQPage:* <count> | *BreadcrumbList:* <count>"}\'',
+            '',
+            'CRITICAL: Use <@U07A91AB7GW> exactly as written for Slack mention.',
+            '',
+            '### After You Finish — Update seo-program.md (autoresearch loop)',
+            'MANDATORY — do this after every run:',
+            '1. Open `seo-program.md` in vatsanatech/stage-seo-pipeline (main branch)',
+            '2. Add entry to Experiment Log: schemas added, page types covered, PR link',
+            '3. Update Current Priorities — mark schema tasks done/in-progress',
+            '4. Update Metrics Baseline: pages with VideoObject, FAQPage, BreadcrumbList counts',
+            '5. Add new Schema Rules if you discovered patterns worth keeping',
+            '6. Commit directly to main: `chore(seo): update program.md after schema audit ' + date + '`',
+            '   — Do NOT raise a PR for this commit, push directly to main',
+          ].join('\n');
+
+          console.log(JSON.stringify(desc));
+          NODESCRIPT
+
+          DESC_JSON=$(RUN_DATE="${DATE}" node /tmp/build_schema_desc.js)
+
+          curl -s -X POST \
+            "$PAPERCLIP_API_URL/api/companies/$COMPANY_ID/issues" \
+            -H "Authorization: Bearer $PAPERCLIP_API_KEY" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"title\": \"Schema Audit — stage.in (${DATE})\",
+              \"description\": $DESC_JSON,
+              \"status\": \"todo\",
+              \"priority\": \"critical\",
+              \"assigneeAgentId\": \"$AGENT_ID\"
+            }" && echo "Schema audit issue created" || echo "Issue creation failed"
+
+          curl -s -X POST \
+            "$PAPERCLIP_API_URL/api/agents/$AGENT_ID/wakeup" \
+            -H "Authorization: Bearer $PAPERCLIP_API_KEY" \
+            -H "Content-Type: application/json" \
+            -d "{\"reason\": \"Schema Audit ${DATE}\"}" \
+            && echo "Agent wakeup sent" || echo "Wakeup failed"
+
+      - name: Skip (duplicate exists)
+        if: steps.dedup.outputs.exists == 'yes'
+        run: echo "Schema audit for ${{ steps.dedup.outputs.date }} already exists — skipping"

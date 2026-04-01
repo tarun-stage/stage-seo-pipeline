@@ -10,6 +10,14 @@ export {
   getPendingLinkSuggestions,
   getLatestGeoScores,
   insertGeoScore,
+  // Self-improvement loop
+  insertLesson,
+  confirmLesson,
+  getHighConfidenceLessons,
+  getFailureLessons,
+  // AI citation tracking
+  insertAiCitation,
+  getAiCitationRate,
 } from './db/repository.js';
 export type {
   Keyword,
@@ -20,4 +28,6 @@ export type {
   LinkSuggestion,
   GeoScore,
   AgentRun,
-} from './models/types.js';
+  Lesson,
+  AiCitation,
+} from './db/repository.js';

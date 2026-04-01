@@ -1,0 +1,140 @@
+name: SEO Content Freshness Check
+
+on:
+  schedule:
+    - cron: '30 4 1,15 * *'  # 1st and 15th of each month, 10:00 AM IST
+  workflow_dispatch:
+
+jobs:
+  freshness-check:
+    name: Content Freshness Monitor
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check content freshness
+        id: freshness
+        run: |
+          DATE=$(date +%Y-%m-%d)
+          echo "date=${DATE}" >> $GITHUB_OUTPUT
+
+          STALE_PAGES=""
+          STALE_COUNT=0
+
+          # Check key pages for dateModified in JSON-LD or meta tags
+          PAGES=(
+            "https://stage.in/hi/haryanvi/"
+            "https://stage.in/hi/rajasthani/"
+            "https://stage.in/hi/bhojpuri/"
+            "https://stage.in/hi/gujarati/"
+            "https://stage.in/movies"
+            "https://stage.in/shows"
+            "https://stage.in/"
+          )
+
+          for PAGE in "${PAGES[@]}"; do
+            CONTENT=$(curl -s --max-time 10 "$PAGE" 2>/dev/null | head -c 50000)
+            # Look for dateModified in JSON-LD
+            DATE_MOD=$(echo "$CONTENT" | grep -oP '"dateModified"\s*:\s*"\K[^"]+' | head -1)
+            if [ -z "$DATE_MOD" ]; then
+              DATE_MOD=$(echo "$CONTENT" | grep -oP 'content="\K[0-9]{4}-[0-9]{2}-[0-9]{2}' | head -1)
+            fi
+
+            if [ -n "$DATE_MOD" ]; then
+              DAYS_AGO=$(( ( $(date +%s) - $(date -d "$DATE_MOD" +%s 2>/dev/null || echo $(date +%s)) ) / 86400 ))
+              if [ "$DAYS_AGO" -gt 90 ] 2>/dev/null; then
+                STALE_PAGES="$STALE_PAGES $PAGE (${DAYS_AGO}d)"
+                STALE_COUNT=$((STALE_COUNT + 1))
+              fi
+            fi
+          done
+
+          echo "stale_count=${STALE_COUNT}" >> $GITHUB_OUTPUT
+          echo "stale_pages=${STALE_PAGES}" >> $GITHUB_OUTPUT
+
+      - name: Create Paperclip freshness task
+        if: steps.freshness.outputs.stale_count != '0'
+        env:
+          PAPERCLIP_API_URL: ${{ secrets.PAPERCLIP_API_URL }}
+          PAPERCLIP_API_KEY: ${{ secrets.PAPERCLIP_API_KEY }}
+        run: |
+          DATE=${{ steps.freshness.outputs.date }}
+          STALE="${{ steps.freshness.outputs.stale_pages }}"
+          COUNT="${{ steps.freshness.outputs.stale_count }}"
+          COMPANY_ID="f0a0b0c0-0001-4000-8000-000000000001"
+          AGENT_ID="f1000001-0002-4000-8000-000000000001"
+
+          cat > /tmp/build_freshness_desc.js << 'NODESCRIPT'
+          const date = process.env.RUN_DATE;
+          const stalePages = process.env.STALE_PAGES || '';
+          const staleCount = process.env.STALE_COUNT;
+
+          const desc = [
+            '## Content Freshness Alert — ' + staleCount + ' stale pages (' + date + ')',
+            '',
+            '**Why this matters:** Pages not updated in 90+ days lose 3x AI citation rate.',
+            '',
+            '### Step 0: Read seo-program.md FIRST (autoresearch loop)',
+            '1. Read `seo-program.md` from vatsanatech/stage-seo-pipeline repo (main branch)',
+            '2. Note which pages were stale in previous runs — track if freshness is improving',
+            '3. Apply any confirmed content refresh patterns from High Confidence Lessons',
+            '',
+            '### Stale Pages Found',
+            stalePages.trim().split(' ').filter(Boolean).map(p => '- ' + p).join('\n'),
+            '',
+            '### How to refresh content (without changing page logic)',
+            '1. Update `dateModified` in JSON-LD schemas on these pages',
+            '2. Add/update 1-2 fresh data points (e.g., "Now streaming 1200+ Haryanvi movies")',
+            '3. Refresh FAQ answers to reflect current catalog size',
+            '4. Update any "as of [year]" references',
+            '',
+            '### Steps',
+            '1. git checkout main && git pull origin main (vatsanatech/stage-webapp)',
+            '2. Branch: fix/freshness-' + date,
+            '3. Update dateModified to today in JSON-LD for stale pages',
+            '4. Make small meaningful content update on each stale page',
+            '5. Commit: `chore(seo): refresh content freshness ' + date + '`',
+            '6. Raise PR against main',
+            '',
+            '### After PR raised',
+            'curl -X POST "$SLACK_WEBHOOK_URL" -H "Content-Type: application/json" -d \'{"text": "*Freshness Check — ' + date + '*\\nHi <@U07A91AB7GW>, ' + staleCount + ' stale pages refreshed. PR: <PR_URL>"}\'',
+            '',
+            'CRITICAL: Use <@U07A91AB7GW> exactly as written for Slack mention.',
+            '',
+            '### After You Finish — Update seo-program.md (autoresearch loop)',
+            'MANDATORY — do this after every run:',
+            '1. Open `seo-program.md` in vatsanatech/stage-seo-pipeline (main branch)',
+            '2. Add entry to Experiment Log: which pages were stale, what content was refreshed',
+            '3. Update Metrics Baseline with freshness data',
+            '4. Note if the same pages keep going stale — flag for automation',
+            '5. Commit directly to main: `chore(seo): update program.md after freshness check ' + date + '`',
+            '   — Do NOT raise a PR for this commit, push directly to main',
+          ].join('\n');
+
+          console.log(JSON.stringify(desc));
+          NODESCRIPT
+
+          DESC_JSON=$(RUN_DATE="${DATE}" STALE_PAGES="${STALE}" STALE_COUNT="${COUNT}" node /tmp/build_freshness_desc.js)
+
+          curl -s -X POST \
+            "$PAPERCLIP_API_URL/api/companies/$COMPANY_ID/issues" \
+            -H "Authorization: Bearer $PAPERCLIP_API_KEY" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"title\": \"Content Freshness Alert — ${COUNT} stale pages (${DATE})\",
+              \"description\": $DESC_JSON,
+              \"status\": \"todo\",
+              \"priority\": \"medium\",
+              \"assigneeAgentId\": \"$AGENT_ID\"
+            }" && echo "Freshness issue created" || echo "Issue creation failed"
+
+          curl -s -X POST \
+            "$PAPERCLIP_API_URL/api/agents/$AGENT_ID/wakeup" \
+            -H "Authorization: Bearer $PAPERCLIP_API_KEY" \
+            -H "Content-Type: application/json" \
+            -d "{\"reason\": \"Content Freshness Check ${DATE}\"}" \
+            && echo "Agent wakeup sent" || echo "Wakeup failed"
+
+      - name: No stale pages
+        if: steps.freshness.outputs.stale_count == '0'
+        run: echo "✓ All key pages are fresh — no action needed"

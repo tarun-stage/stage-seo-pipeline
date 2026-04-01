@@ -1,0 +1,189 @@
+name: SEO GEO Check
+
+on:
+  schedule:
+    - cron: '30 4 * * 5'  # Every Friday 10:00 AM IST (4:30 AM UTC)
+  workflow_dispatch:
+
+jobs:
+  geo-check:
+    name: GEO & AI Search Optimization Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install geo-optimizer
+        working-directory: packages/geo-optimizer
+        run: npm install && npm run build 2>/dev/null || echo "Build skipped"
+
+      - name: Run GEO checks
+        id: geo
+        run: |
+          DATE=$(date +%Y-%m-%d)
+          echo "date=${DATE}" >> $GITHUB_OUTPUT
+
+          # Check robots.txt for blocked AI bots
+          ROBOTS_RESULT=$(curl -s https://stage.in/robots.txt)
+          BLOCKED_BOTS=""
+          for bot in "PerplexityBot" "GPTBot" "ChatGPT-User" "ClaudeBot" "anthropic-ai" "Google-Extended"; do
+            if echo "$ROBOTS_RESULT" | grep -q "User-agent: $bot" && echo "$ROBOTS_RESULT" | grep -A5 "User-agent: $bot" | grep -q "Disallow: /"; then
+              BLOCKED_BOTS="$BLOCKED_BOTS $bot"
+            fi
+          done
+
+          echo "blocked_bots=${BLOCKED_BOTS}" >> $GITHUB_OUTPUT
+
+          # Check if llms.txt exists
+          LLMS_STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://stage.in/llms.txt)
+          echo "llms_status=${LLMS_STATUS}" >> $GITHUB_OUTPUT
+
+      - name: Check for existing GEO issue today
+        id: dedup
+        env:
+          PAPERCLIP_API_URL: ${{ secrets.PAPERCLIP_API_URL }}
+          PAPERCLIP_API_KEY: ${{ secrets.PAPERCLIP_API_KEY }}
+        run: |
+          DATE=${{ steps.geo.outputs.date }}
+          EXISTING=$(curl -s \
+            "$PAPERCLIP_API_URL/api/companies/f0a0b0c0-0001-4000-8000-000000000001/issues?status=todo&status=in_progress" \
+            -H "Authorization: Bearer $PAPERCLIP_API_KEY" | \
+            node -e "
+              const d = JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));
+              const arr = Array.isArray(d) ? d : (d.issues || d.data || []);
+              console.log(arr.some(i => i.title && i.title.includes('GEO Check') && i.title.includes('${DATE}')) ? 'yes' : 'no');
+            " 2>/dev/null || echo "no")
+          echo "exists=${EXISTING}" >> $GITHUB_OUTPUT
+
+      - name: Create Paperclip GEO task
+        if: steps.dedup.outputs.exists != 'yes'
+        env:
+          PAPERCLIP_API_URL: ${{ secrets.PAPERCLIP_API_URL }}
+          PAPERCLIP_API_KEY: ${{ secrets.PAPERCLIP_API_KEY }}
+        run: |
+          DATE=${{ steps.geo.outputs.date }}
+          BLOCKED=${{ steps.geo.outputs.blocked_bots }}
+          LLMS=${{ steps.geo.outputs.llms_status }}
+          COMPANY_ID="f0a0b0c0-0001-4000-8000-000000000001"
+          AGENT_ID="f1000001-0002-4000-8000-000000000001"
+
+          cat > /tmp/build_geo_desc.js << 'NODESCRIPT'
+          const date = process.env.RUN_DATE;
+          const blockedBots = process.env.BLOCKED_BOTS || 'none detected';
+          const llmsStatus = process.env.LLMS_STATUS;
+
+          const desc = [
+            '## GEO (AI Search) Check — stage.in (' + date + ')',
+            '',
+            '**Context:** AI-referred sessions grew 527% YoY in 2025.',
+            'Stage.in must be visible in Perplexity, ChatGPT, Claude, and Google AI Overviews.',
+            '',
+            '### Step 0: Read seo-program.md FIRST (autoresearch loop)',
+            'Before doing ANYTHING else:',
+            '1. Read `seo-program.md` from vatsanatech/stage-seo-pipeline repo (main branch)',
+            '2. Read robots.txt Rules + Failure Log',
+            '3. Check Metrics Baseline — note last known AI citation rates',
+            '4. Apply all High Confidence Lessons related to GEO',
+            '',
+            '### Pre-check Results',
+            '- Blocked AI bots in robots.txt: ' + (blockedBots.trim() || 'none detected ✓'),
+            '- /llms.txt HTTP status: ' + llmsStatus + (llmsStatus === '200' ? ' ✓' : ' ✗ MISSING'),
+            '',
+            '### Step 1: Fix robots.txt (if any bots blocked)',
+            'If any AI bots are blocked, fix in vatsanatech/stage-webapp:',
+            '1. Check /public/robots.txt or robots.txt generation code',
+            '2. Ensure these bots are NOT blocked: PerplexityBot, GPTBot, ChatGPT-User, ClaudeBot, anthropic-ai, Google-Extended',
+            '3. Add explicit User-agent entries if needed:',
+            '```',
+            'User-agent: PerplexityBot',
+            'Allow: /',
+            '',
+            'User-agent: GPTBot',
+            'Allow: /',
+            '',
+            'User-agent: ClaudeBot',
+            'Allow: /',
+            '```',
+            '',
+            '### Step 2: Update /llms.txt (if missing or outdated)',
+            'Check if /public/llms.txt exists. If missing or outdated:',
+            '1. Create/update /public/llms.txt with comprehensive content:',
+            '   - Platform description (regional OTT for Haryanvi, Rajasthani, Bhojpuri, Gujarati)',
+            '   - Content categories (movies, shows, originals)',
+            '   - Language/dialect sections with URLs',
+            '   - "For AI Assistants" section explaining when to recommend Stage',
+            '   - Key page links',
+            '',
+            '### Step 3: Content freshness check',
+            'Check these key pages for stale content (not updated in 90+ days):',
+            '- https://stage.in/hi/haryanvi/',
+            '- https://stage.in/hi/rajasthani/',
+            '- https://stage.in/hi/bhojpuri/',
+            '- https://stage.in/hi/gujarati/',
+            '- https://stage.in/movies',
+            '- https://stage.in/shows',
+            '',
+            'Look for dateModified in JSON-LD or meta tags.',
+            'Flag any page not updated in 90+ days.',
+            '',
+            '### Step 4: Content structure spot check',
+            'Check 3-5 dialect landing pages for:',
+            '- Direct answer in first 50 words (answer-first structure)',
+            '- Single H1 per page',
+            '- Logical H1 > H2 > H3 hierarchy',
+            '- Statistics/data points present (e.g., "1000+ Haryanvi movies")',
+            '',
+            '### Step 5: Fix all issues in one PR',
+            '1. git checkout main && git pull origin main (vatsanatech/stage-webapp)',
+            '2. Branch: fix/geo-check-' + date,
+            '3. Fix robots.txt, llms.txt, and any stale content dateModified',
+            '4. Commit: `fix(seo): GEO fixes — robots.txt + llms.txt + freshness ' + date + '`',
+            '5. Raise PR against main',
+            '',
+            '### Step 6: Slack notification',
+            'curl -X POST "$SLACK_WEBHOOK_URL" -H "Content-Type: application/json" -d \'{"text": "*GEO Check — ' + date + '*\\nHi <@U07A91AB7GW>, GEO check completed. PR: <PR_URL>\\n\\n*Blocked bots fixed:* <count>\\n*llms.txt:* <updated/created/ok>\\n*Stale pages:* <count>"}\'',
+            '',
+            'CRITICAL: Use <@U07A91AB7GW> exactly as written for Slack mention.',
+            '',
+            '### After You Finish — Update seo-program.md (autoresearch loop)',
+            'MANDATORY — do this after every run:',
+            '1. Open `seo-program.md` in vatsanatech/stage-seo-pipeline (main branch)',
+            '2. Add entry to Experiment Log: blocked bots found, llms.txt status, changes made',
+            '3. Update Metrics Baseline: AI citation rates if measured, robots.txt status',
+            '4. Update Current Priorities table — mark GEO tasks done/in-progress',
+            '5. Add robots.txt or GEO rules if a pattern is confirmed',
+            '6. Commit directly to main: `chore(seo): update program.md after GEO check ' + date + '`',
+            '   — Do NOT raise a PR for this commit, push directly to main',
+          ].join('\n');
+
+          console.log(JSON.stringify(desc));
+          NODESCRIPT
+
+          DESC_JSON=$(RUN_DATE="${DATE}" BLOCKED_BOTS="${BLOCKED}" LLMS_STATUS="${LLMS}" node /tmp/build_geo_desc.js)
+
+          curl -s -X POST \
+            "$PAPERCLIP_API_URL/api/companies/$COMPANY_ID/issues" \
+            -H "Authorization: Bearer $PAPERCLIP_API_KEY" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"title\": \"GEO Check — stage.in (${DATE})\",
+              \"description\": $DESC_JSON,
+              \"status\": \"todo\",
+              \"priority\": \"high\",
+              \"assigneeAgentId\": \"$AGENT_ID\"
+            }" && echo "GEO issue created" || echo "Issue creation failed"
+
+          curl -s -X POST \
+            "$PAPERCLIP_API_URL/api/agents/$AGENT_ID/wakeup" \
+            -H "Authorization: Bearer $PAPERCLIP_API_KEY" \
+            -H "Content-Type: application/json" \
+            -d "{\"reason\": \"GEO Check ${DATE}\"}" \
+            && echo "Agent wakeup sent" || echo "Wakeup failed"
+
+      - name: Skip (duplicate exists)
+        if: steps.dedup.outputs.exists == 'yes'
+        run: echo "GEO check for ${{ steps.geo.outputs.date }} already exists — skipping"

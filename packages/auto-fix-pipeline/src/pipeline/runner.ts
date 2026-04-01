@@ -50,6 +50,29 @@ export async function runAutoFixPipeline(config: PipelineConfig): Promise<Pipeli
   const buffer = readFileSync(config.dbPath);
   const db = new SQL.Database(buffer);
 
+  // GAP-10: Read lessons before prioritizing — autoresearch loop
+  const lessonsResult = db.exec(
+    `SELECT source, pattern, type, confidence FROM lessons
+     WHERE confidence >= 0.6
+     ORDER BY confidence DESC, times_confirmed DESC LIMIT 50`
+  );
+  const failurePatterns = new Set<string>();
+  const successBoosts = new Map<string, number>(); // issue_type -> confidence boost
+  if (lessonsResult.length && lessonsResult[0].values.length) {
+    for (const row of lessonsResult[0].values) {
+      const [source, pattern, type, confidence] = row as [string, string, string, number];
+      if (type === 'failure') {
+        // Extract issue_type from pattern if present
+        const match = pattern.match(/issue_type:\s*(\S+)/);
+        if (match) failurePatterns.add(match[1]);
+      } else if (type === 'success') {
+        const match = pattern.match(/issue_type:\s*(\S+)/);
+        if (match) successBoosts.set(match[1], confidence);
+      }
+    }
+    console.log(`Lessons loaded: ${failurePatterns.size} failure patterns, ${successBoosts.size} success boosts`);
+  }
+
   // Get open audit issues with suggested fixes
   const issues = db.exec(
     `SELECT id, url, issue_type, severity, description, suggested_fix, fix_status
@@ -91,6 +114,18 @@ export async function runAutoFixPipeline(config: PipelineConfig): Promise<Pipeli
       continue;
     }
 
+    // Skip issue types confirmed as failures in lessons
+    if (failurePatterns.has(issue.issue_type)) {
+      console.log(`  Skipping [${issue.issue_type}] — failure lesson says avoid this pattern`);
+      result.skipped++;
+      continue;
+    }
+
+    // Log if we have a success boost for this type
+    if (successBoosts.has(issue.issue_type)) {
+      console.log(`  Lesson boost: ${issue.issue_type} has confidence ${successBoosts.get(issue.issue_type)?.toFixed(2)} — prioritizing`);
+    }
+
     console.log(`Processing: [${issue.severity}] ${issue.issue_type} on ${issue.url}`);
 
     // Validate the suggested fix with tsc --noEmit
@@ -121,6 +156,14 @@ export async function runAutoFixPipeline(config: PipelineConfig): Promise<Pipeli
       );
 
       db.run(`UPDATE audit_issues SET fix_status = 'in_progress', pr_url = ? WHERE id = ?`, [prUrl, issue.id]);
+
+      // Write success lesson for this issue type
+      db.run(
+        `INSERT INTO lessons (source, pattern, type, confidence) VALUES (?, ?, ?, ?)
+         ON CONFLICT DO NOTHING`,
+        ['auto-fix-pipeline', `issue_type: ${issue.issue_type} — PR created successfully`, 'success', 0.6]
+      );
+
       result.fixed++;
       result.prsCreated.push(prUrl);
 
@@ -128,6 +171,14 @@ export async function runAutoFixPipeline(config: PipelineConfig): Promise<Pipeli
     } catch (err: any) {
       console.log(`  PR creation failed: ${err.message}`);
       returnToMainBranch(config.projectDir);
+
+      // Write failure lesson
+      db.run(
+        `INSERT INTO lessons (source, pattern, type, confidence) VALUES (?, ?, ?, ?)
+         ON CONFLICT DO NOTHING`,
+        ['auto-fix-pipeline', `issue_type: ${issue.issue_type} — PR creation failed: ${(err as Error).message?.slice(0, 100)}`, 'failure', 0.5]
+      );
+
       result.failed++;
     }
   }

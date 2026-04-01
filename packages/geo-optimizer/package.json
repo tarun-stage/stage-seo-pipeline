@@ -1,0 +1,19 @@
+{
+  "name": "@stage-seo/geo-optimizer",
+  "version": "1.0.0",
+  "description": "GEO (Generative Engine Optimization) analyzer for Stage.in — AI search visibility",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "analyze": "node dist/cli.js analyze",
+    "robots": "node dist/cli.js robots",
+    "freshness": "node dist/cli.js freshness"
+  },
+  "dependencies": {
+    "cheerio": "^1.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.0"
+  }
+}
