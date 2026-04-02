@@ -1,0 +1,327 @@
+name: SEO Competitor ASO Monitor
+
+on:
+  schedule:
+    - cron: '30 6 * * 3'
+  workflow_dispatch:
+
+jobs:
+  aso-monitor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Run ASO Competitor Monitor
+        env:
+          PAPERCLIP_API_KEY: ${{ secrets.PAPERCLIP_API_KEY }}
+          SLACK_WEBHOOK_URL: '${{ secrets.SLACK_WEBHOOK_URL }}'
+        run: |
+          node << 'EOF'
+          const https = require('https');
+          const { execSync } = require('child_process');
+
+          const PAPERCLIP_API_KEY = process.env.PAPERCLIP_API_KEY;
+          const SLACK_WEBHOOK_URL = process.env.SLACK_WEBHOOK_URL;
+
+          const ASO_COMPANY_ID = '03319c0f-9679-474a-90e2-7004053fdef2';
+          const ASO_CEO_AGENT_ID = 'b4802fc6-f46a-443f-a5a9-86028686b5fc';
+
+          const KEYWORDS = [
+            'haryanvi movies',
+            'rajasthani songs',
+            'bhojpuri web series',
+            'desi entertainment app',
+            'haryanvi comedy',
+            'regional ott india',
+            'bhojpuri movies free',
+            'haryanvi serial',
+          ];
+
+          const OWNED_KEYWORDS = ['haryanvi', 'rajasthani', 'bhojpuri'];
+
+          const TARGET_APPS = [
+            { id: 'in.stage', name: 'Stage' },
+            { id: 'com.chaupalapp', name: 'Chaupal' },
+            { id: 'com.mxtech.videoplayer.ad', name: 'MX Player' },
+            { id: 'com.ullu.android', name: 'Ullu' },
+            { id: 'com.zeestudios.zee5', name: 'Zee5' },
+          ];
+
+          const USER_AGENT = 'Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 Chrome/120.0.0.0 Mobile Safari/537.36';
+
+          function httpsGet(url, headers) {
+            return new Promise((resolve, reject) => {
+              const options = {
+                headers: {
+                  'User-Agent': USER_AGENT,
+                  ...headers,
+                },
+              };
+              https.get(url, options, (res) => {
+                let data = '';
+                res.on('data', chunk => data += chunk);
+                res.on('end', () => resolve({ statusCode: res.statusCode, body: data }));
+              }).on('error', reject);
+            });
+          }
+
+          function httpsPost(url, body, headers) {
+            return new Promise((resolve, reject) => {
+              const data = JSON.stringify(body);
+              const urlObj = new URL(url);
+              const options = {
+                hostname: urlObj.hostname,
+                path: urlObj.pathname,
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Content-Length': Buffer.byteLength(data),
+                  ...headers,
+                },
+              };
+              const req = https.request(options, (res) => {
+                let responseData = '';
+                res.on('data', chunk => responseData += chunk);
+                res.on('end', () => resolve({ statusCode: res.statusCode, body: responseData }));
+              });
+              req.on('error', reject);
+              req.write(data);
+              req.end();
+            });
+          }
+
+          async function fetchPlayStoreRankings(keyword) {
+            const encodedKeyword = encodeURIComponent(keyword);
+            const url = `https://play.google.com/store/search?q=${encodedKeyword}&c=apps&hl=en`;
+            try {
+              const result = await httpsGet(url);
+              if (result.statusCode === 429) {
+                return { blocked: true, reason: '429 rate limit' };
+              }
+              if (!result.body || result.body.trim().length < 100) {
+                return { blocked: true, reason: 'empty response' };
+              }
+              // Extract package IDs from ?id= patterns in HTML
+              const packagePattern = /[?&]id=([\w.]+)/g;
+              const found = [];
+              let match;
+              while ((match = packagePattern.exec(result.body)) !== null) {
+                const pkg = match[1];
+                if (!found.includes(pkg)) {
+                  found.push(pkg);
+                }
+              }
+              if (found.length === 0) {
+                return { blocked: true, reason: 'no package IDs found in response' };
+              }
+              const rankings = {};
+              for (const app of TARGET_APPS) {
+                const pos = found.indexOf(app.id);
+                rankings[app.id] = pos >= 0 && pos < 10 ? pos + 1 : null;
+              }
+              return { blocked: false, rankings, rawOrder: found.slice(0, 10) };
+            } catch (err) {
+              return { blocked: true, reason: err.message };
+            }
+          }
+
+          function formatRank(rank) {
+            if (rank === null) return '-';
+            return `#${rank}`;
+          }
+
+          function rankLabel(rank, keyword) {
+            if (rank === null) return '-';
+            const isOwned = OWNED_KEYWORDS.some(kw => keyword.includes(kw));
+            if (isOwned && rank <= 3) return `#${rank} ✅`;
+            if (isOwned && rank > 3) return `#${rank} ⚠️`;
+            return `#${rank}`;
+          }
+
+          async function checkDuplicatePaperclipIssue(keyword, today) {
+            const title = `[ASO] Competitor ranked above Stage for: ${keyword} — ${today}`;
+            // Simple dedup: we check by searching existing issues
+            // Using the Paperclip search endpoint
+            try {
+              const searchUrl = `https://api.paperclip.com/v1/companies/${ASO_COMPANY_ID}/issues?search=${encodeURIComponent(title)}&limit=5`;
+              const result = await httpsGet(searchUrl, {
+                'Authorization': `Bearer ${PAPERCLIP_API_KEY}`,
+              });
+              if (result.statusCode === 200) {
+                const data = JSON.parse(result.body);
+                if (Array.isArray(data) && data.length > 0) return true;
+                if (data.issues && data.issues.length > 0) return true;
+              }
+            } catch (e) {
+              // If dedup check fails, proceed to create
+            }
+            return false;
+          }
+
+          async function createPaperclipIssue(title, description) {
+            const url = `https://api.paperclip.com/v1/companies/${ASO_COMPANY_ID}/agents/${ASO_CEO_AGENT_ID}/issues`;
+            const body = { title, description };
+            const result = await httpsPost(url, body, {
+              'Authorization': `Bearer ${PAPERCLIP_API_KEY}`,
+            });
+            return result;
+          }
+
+          async function postToSlack(message) {
+            const result = await httpsPost(SLACK_WEBHOOK_URL, { text: message }, {});
+            return result;
+          }
+
+          async function main() {
+            const today = new Date().toISOString().split('T')[0];
+            console.log(`Running ASO Competitor Monitor for ${today}`);
+
+            const results = {};
+            let anyBlocked = false;
+            let blockReasons = [];
+
+            for (const keyword of KEYWORDS) {
+              console.log(`Checking keyword: ${keyword}`);
+              const res = await fetchPlayStoreRankings(keyword);
+              results[keyword] = res;
+              if (res.blocked) {
+                anyBlocked = true;
+                blockReasons.push(`"${keyword}": ${res.reason}`);
+              }
+              // Small delay to avoid rate limiting
+              await new Promise(r => setTimeout(r, 1500));
+            }
+
+            // Build summary table rows
+            let tableRows = '';
+            let opportunityLines = [];
+            let paperclipIssues = [];
+
+            for (const keyword of KEYWORDS) {
+              const res = results[keyword];
+              if (res.blocked) {
+                tableRows += `| ${keyword} | blocked | - | - | - |\n`;
+                continue;
+              }
+              const stageRank = res.rankings['in.stage'];
+              const chaupalRank = res.rankings['com.chaupalapp'];
+              const mxRank = res.rankings['com.mxtech.videoplayer.ad'];
+              const ulluRank = res.rankings['com.ullu.android'];
+              const zee5Rank = res.rankings['com.zeestudios.zee5'];
+
+              tableRows += `| ${keyword} | ${rankLabel(stageRank, keyword)} | ${formatRank(chaupalRank)} | ${formatRank(mxRank)} | ${formatRank(ulluRank)} | ${formatRank(zee5Rank)} |\n`;
+
+              // Check if Stage ranks worse than position 3 for owned keywords
+              const isOwned = OWNED_KEYWORDS.some(kw => keyword.includes(kw));
+              if (isOwned && (stageRank === null || stageRank > 3)) {
+                // Find which competitor is ranked above
+                const competitors = [
+                  { name: 'Chaupal', rank: chaupalRank },
+                  { name: 'MX Player', rank: mxRank },
+                  { name: 'Ullu', rank: ulluRank },
+                  { name: 'Zee5', rank: zee5Rank },
+                ].filter(c => c.rank !== null).sort((a, b) => a.rank - b.rank);
+
+                const topCompetitor = competitors[0];
+                if (topCompetitor) {
+                  opportunityLines.push(
+                    `⚠️ Opportunity: "${keyword}" — Stage is ${stageRank ? '#' + stageRank : 'not ranked'}, ${topCompetitor.name} is #${topCompetitor.rank}`
+                  );
+                }
+
+                paperclipIssues.push({ keyword, stageRank, competitors });
+              }
+            }
+
+            // Build Slack message
+            let slackMsg = `*ASO Competitor Monitor — ${today}* 📊\n\n`;
+            slackMsg += `*Play Store Rankings (Google Play Search)*\n\n`;
+
+            if (anyBlocked) {
+              slackMsg += `⚠️ Note: Play Store scraping was blocked for some keywords: ${blockReasons.join('; ')}\n\n`;
+            }
+
+            slackMsg += `| Keyword | Stage | Chaupal | MX Player | Ullu | Zee5 |\n`;
+            slackMsg += `|---------|-------|---------|-----------|------|------|\n`;
+            slackMsg += tableRows;
+            slackMsg += '\n';
+
+            if (opportunityLines.length > 0) {
+              slackMsg += opportunityLines.join('\n') + '\n';
+              slackMsg += `Action: ASO CEO notified to update Play Store metadata\n`;
+            }
+
+            slackMsg += `\n_Automated by SEO/ASO Pipeline · Every Wednesday_`;
+
+            // Post to Slack
+            try {
+              await postToSlack(slackMsg);
+              console.log('Posted to Slack successfully');
+            } catch (e) {
+              console.error('Failed to post to Slack:', e.message);
+            }
+
+            // Create Paperclip issues for opportunities
+            for (const issue of paperclipIssues) {
+              const { keyword, stageRank, competitors } = issue;
+              const title = `[ASO] Competitor ranked above Stage for: ${keyword} — ${today}`;
+
+              // Dedup check
+              const isDuplicate = await checkDuplicatePaperclipIssue(keyword, today);
+              if (isDuplicate) {
+                console.log(`Skipping duplicate issue for keyword: ${keyword}`);
+                continue;
+              }
+
+              const rankingTable = KEYWORDS.map(kw => {
+                const r = results[kw];
+                if (r.blocked) return `| ${kw} | blocked | - | - | - | - |`;
+                return `| ${kw} | ${formatRank(r.rankings['in.stage'])} | ${formatRank(r.rankings['com.chaupalapp'])} | ${formatRank(r.rankings['com.mxtech.videoplayer.ad'])} | ${formatRank(r.rankings['com.ullu.android'])} | ${formatRank(r.rankings['com.zeestudios.zee5'])} |`;
+              }).join('\n');
+
+              const description = `Stage is ranking ${stageRank ? '#' + stageRank : 'outside top 10'} for "${keyword}" — a keyword it should own.\n\n` +
+                `**Full Ranking Table (${today}):**\n\n` +
+                `| Keyword | Stage | Chaupal | MX Player | Ullu | Zee5 |\n` +
+                `|---------|-------|---------|-----------|------|------|\n` +
+                rankingTable + '\n\n' +
+                `**Recommended Actions:**\n` +
+                `- Update Play Store short description to include "${keyword}"\n` +
+                `- Add "${keyword}" to app keywords/tags in Play Store Console\n` +
+                `- Review app title and update if possible to include primary keyword\n` +
+                `- Analyze top-ranked competitor (${competitors[0]?.name || 'N/A'}) metadata for gaps\n` +
+                `- Consider A/B testing store listing graphics targeting this keyword\n\n` +
+                `_Created by SEO/ASO Pipeline automated monitor_`;
+
+              try {
+                const result = await createPaperclipIssue(title, description);
+                console.log(`Created Paperclip issue for "${keyword}": status ${result.statusCode}`);
+              } catch (e) {
+                console.error(`Failed to create Paperclip issue for "${keyword}":`, e.message);
+              }
+            }
+
+            // If any blocked keywords, create a manual check issue
+            if (anyBlocked) {
+              const title = `[ASO] Manual Check Required: Play Store scraping blocked — ${today}`;
+              const description = `Play Store scraping was blocked during automated ASO monitoring on ${today}.\n\n` +
+                `Affected keywords:\n${blockReasons.map(r => `- ${r}`).join('\n')}\n\n` +
+                `Please manually check rankings for these keywords on Google Play Store and update the tracking sheet.`;
+              try {
+                const isDup = await checkDuplicatePaperclipIssue('Manual Check Required: Play Store scraping blocked', today);
+                if (!isDup) {
+                  await createPaperclipIssue(title, description);
+                  console.log('Created Paperclip issue for blocked scraping');
+                }
+              } catch (e) {
+                console.error('Failed to create blocked-scraping Paperclip issue:', e.message);
+              }
+            }
+
+            console.log('ASO Competitor Monitor complete');
+          }
+
+          main().catch(err => {
+            console.error('Fatal error:', err);
+            process.exit(1);
+          });
+          EOF
