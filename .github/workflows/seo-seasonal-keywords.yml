@@ -1,0 +1,351 @@
+name: SEO Seasonal Keywords Alert
+
+on:
+  schedule:
+    - cron: '30 3 1 * *'
+  workflow_dispatch:
+
+jobs:
+  seasonal-keywords:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Run Seasonal Keywords Alert
+        env:
+          PAPERCLIP_API_KEY: ${{ secrets.PAPERCLIP_API_KEY }}
+          PAPERCLIP_ASO_API_KEY: ${{ secrets.PAPERCLIP_ASO_API_KEY }}
+          SLACK_WEBHOOK_URL: '${{ secrets.SLACK_WEBHOOK_URL }}'
+        run: |
+          node << 'EOF'
+          const https = require('https');
+
+          const PAPERCLIP_API_KEY = process.env.PAPERCLIP_API_KEY;
+          const PAPERCLIP_ASO_API_KEY = process.env.PAPERCLIP_ASO_API_KEY;
+          const SLACK_WEBHOOK_URL = process.env.SLACK_WEBHOOK_URL;
+
+          const SEO_COMPANY_ID = 'f0a0b0c0-0001-4000-8000-000000000001';
+          const SEO_AGENT_ID = 'f1000001-0002-4000-8000-000000000001';
+
+          const ASO_COMPANY_ID = '03319c0f-9679-474a-90e2-7004053fdef2';
+          const ASO_CEO_AGENT_ID = 'b4802fc6-f46a-443f-a5a9-86028686b5fc';
+
+          const FESTIVALS = [
+            // Q1
+            { name: 'Makar Sankranti', date: '2026-01-14', keywords: ['makar sankranti songs', 'sankranti special', 'haryanvi sankranti', 'uttarayan'], dialects: ['haryanvi', 'rajasthani', 'gujarati'] },
+            { name: 'Basant Panchami', date: '2026-02-02', keywords: ['basant panchami songs', 'vasant special', 'haryanvi basant'], dialects: ['haryanvi', 'rajasthani'] },
+            { name: 'Holi', date: '2026-03-22', keywords: ['holi songs 2026', 'haryanvi holi', 'bhojpuri holi song', 'rajasthani holi', 'holi dj mix'], dialects: ['haryanvi', 'bhojpuri', 'rajasthani'] },
+            { name: 'Gangaur', date: '2026-04-07', keywords: ['gangaur festival', 'gangaur geet', 'rajasthani gangaur'], dialects: ['rajasthani'] },
+            { name: 'Ram Navami', date: '2026-03-29', keywords: ['ram navami bhajan', 'bhojpuri bhajan'], dialects: ['bhojpuri'] },
+            // Q2
+            { name: 'Akshaya Tritiya', date: '2026-04-28', keywords: ['akshaya tritiya songs', 'rajasthani wedding songs'], dialects: ['rajasthani', 'gujarati'] },
+            { name: 'Eid', date: '2026-03-31', keywords: ['eid special songs', 'haryanvi eid'], dialects: ['haryanvi'] },
+            { name: 'Buddha Purnima', date: '2026-05-12', keywords: [], dialects: [] },
+            { name: 'Teej', date: '2026-07-25', keywords: ['teej songs', 'haryanvi teej geet', 'rajasthani teej', 'teej special', 'teej ka gana'], dialects: ['haryanvi', 'rajasthani'] },
+            { name: 'Hariyali Teej', date: '2026-07-25', keywords: ['hariyali teej', 'teej songs haryanvi'], dialects: ['haryanvi'] },
+            // Q3
+            { name: 'Raksha Bandhan', date: '2026-08-19', keywords: ['raksha bandhan song', 'bhojpuri bhai behen songs', 'haryanvi bhai dooj'], dialects: ['haryanvi', 'bhojpuri'] },
+            { name: 'Janmashtami', date: '2026-08-26', keywords: ['janmashtami bhajan', 'krishna songs bhojpuri', 'krishna janmashtami'], dialects: ['bhojpuri', 'rajasthani'] },
+            { name: 'Gugga Navami', date: '2026-08-30', keywords: ['gugga navami', 'gugga ji songs', 'haryanvi gugga', 'gugga jagran'], dialects: ['haryanvi', 'rajasthani'] },
+            { name: 'Navratri', date: '2026-09-22', keywords: ['navratri songs', 'garba songs', 'gujarati garba', 'navratri special', 'haryanvi devi bhajan'], dialects: ['gujarati', 'haryanvi', 'rajasthani'] },
+            { name: 'Dussehra', date: '2026-10-02', keywords: ['dussehra songs', 'bhojpuri dussehra', 'haryanvi dussehra'], dialects: ['haryanvi', 'bhojpuri'] },
+            // Q4
+            { name: 'Diwali', date: '2026-10-20', keywords: ['diwali songs 2026', 'haryanvi diwali', 'bhojpuri diwali', 'rajasthani diwali', 'diwali special', 'diwali geet'], dialects: ['haryanvi', 'bhojpuri', 'rajasthani', 'gujarati'] },
+            { name: 'Bhai Dooj', date: '2026-10-22', keywords: ['bhai dooj songs', 'haryanvi bhai dooj'], dialects: ['haryanvi'] },
+            { name: 'Chhath Puja', date: '2026-10-28', keywords: ['chhath puja songs', 'bhojpuri chhath geet', 'chhath special'], dialects: ['bhojpuri'] },
+            { name: 'Christmas', date: '2026-12-25', keywords: [], dialects: [] },
+          ];
+
+          function httpsPost(url, body, headers) {
+            return new Promise((resolve, reject) => {
+              const data = JSON.stringify(body);
+              const urlObj = new URL(url);
+              const options = {
+                hostname: urlObj.hostname,
+                path: urlObj.pathname,
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Content-Length': Buffer.byteLength(data),
+                  ...headers,
+                },
+              };
+              const req = https.request(options, (res) => {
+                let responseData = '';
+                res.on('data', chunk => responseData += chunk);
+                res.on('end', () => resolve({ statusCode: res.statusCode, body: responseData }));
+              });
+              req.on('error', reject);
+              req.write(data);
+              req.end();
+            });
+          }
+
+          function httpsGet(url, headers) {
+            return new Promise((resolve, reject) => {
+              const urlObj = new URL(url);
+              const options = {
+                hostname: urlObj.hostname,
+                path: urlObj.pathname + (urlObj.search || ''),
+                method: 'GET',
+                headers: headers || {},
+              };
+              const req = https.request(options, (res) => {
+                let responseData = '';
+                res.on('data', chunk => responseData += chunk);
+                res.on('end', () => resolve({ statusCode: res.statusCode, body: responseData }));
+              });
+              req.on('error', reject);
+              req.end();
+            });
+          }
+
+          function httpsPostWithPath(hostname, path, body, headers) {
+            return new Promise((resolve, reject) => {
+              const data = JSON.stringify(body);
+              const options = {
+                hostname,
+                path,
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Content-Length': Buffer.byteLength(data),
+                  ...headers,
+                },
+              };
+              const req = https.request(options, (res) => {
+                let responseData = '';
+                res.on('data', chunk => responseData += chunk);
+                res.on('end', () => resolve({ statusCode: res.statusCode, body: responseData }));
+              });
+              req.on('error', reject);
+              req.write(data);
+              req.end();
+            });
+          }
+
+          function daysBetween(date1, date2) {
+            const d1 = new Date(date1);
+            const d2 = new Date(date2);
+            return Math.ceil((d2 - d1) / (1000 * 60 * 60 * 24));
+          }
+
+          function formatDateNice(dateStr) {
+            const d = new Date(dateStr);
+            return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+          }
+
+          async function checkDuplicatePaperclipIssue(companyId, title, apiKey) {
+            try {
+              const searchPath = `/v1/companies/${companyId}/issues?search=${encodeURIComponent(title)}&limit=5`;
+              const result = await httpsGet(`https://api.paperclip.com${searchPath}`, {
+                'Authorization': `Bearer ${apiKey}`,
+              });
+              if (result.statusCode === 200) {
+                const data = JSON.parse(result.body);
+                if (Array.isArray(data) && data.length > 0) return true;
+                if (data.issues && data.issues.length > 0) return true;
+              }
+            } catch (e) {
+              // If dedup fails, proceed to create
+            }
+            return false;
+          }
+
+          async function createPaperclipIssue(companyId, agentId, title, description, apiKey) {
+            const result = await httpsPostWithPath(
+              'api.paperclip.com',
+              `/v1/companies/${companyId}/agents/${agentId}/issues`,
+              { title, description },
+              { 'Authorization': `Bearer ${apiKey}` }
+            );
+            return result;
+          }
+
+          async function wakeAgent(companyId, agentId, apiKey) {
+            try {
+              const result = await httpsPostWithPath(
+                'api.paperclip.com',
+                `/v1/companies/${companyId}/agents/${agentId}/wake`,
+                {},
+                { 'Authorization': `Bearer ${apiKey}` }
+              );
+              console.log(`Woke agent ${agentId}: status ${result.statusCode}`);
+            } catch (e) {
+              console.error(`Failed to wake agent ${agentId}:`, e.message);
+            }
+          }
+
+          async function postToSlack(message) {
+            return httpsPost(SLACK_WEBHOOK_URL, { text: message }, {});
+          }
+
+          async function main() {
+            const today = new Date().toISOString().split('T')[0];
+            console.log(`Running Seasonal Keywords Alert for ${today}`);
+
+            const alertFestivals = [];    // within 30 days
+            const reminderFestivals = []; // within 31-60 days
+            const upcomingFestivals = []; // all future festivals
+
+            for (const festival of FESTIVALS) {
+              const days = daysBetween(today, festival.date);
+              if (days < 0) continue; // already passed
+              upcomingFestivals.push({ ...festival, days });
+              if (days <= 30) {
+                alertFestivals.push({ ...festival, days });
+              } else if (days <= 60) {
+                reminderFestivals.push({ ...festival, days });
+              }
+            }
+
+            // Sort by days ascending
+            alertFestivals.sort((a, b) => a.days - b.days);
+            reminderFestivals.sort((a, b) => a.days - b.days);
+            upcomingFestivals.sort((a, b) => a.days - b.days);
+
+            let slackMsg = `*SEO/ASO Seasonal Keywords Alert — ${today}* 🎉\n\n`;
+            slackMsg += `*Upcoming festivals (next 60 days):*\n\n`;
+
+            if (alertFestivals.length === 0 && reminderFestivals.length === 0) {
+              slackMsg += `No festivals in the next 60 days. Here are the next 3 upcoming:\n\n`;
+              const next3 = upcomingFestivals.slice(0, 3);
+              for (const f of next3) {
+                slackMsg += `• *${f.name}* — ${formatDateNice(f.date)} (${f.days} days away)\n`;
+                if (f.keywords.length > 0) {
+                  slackMsg += `  Keywords: ${f.keywords.join(', ')}\n`;
+                }
+              }
+            } else {
+              if (alertFestivals.length > 0) {
+                slackMsg += `🚨 ACT NOW (within 30 days):\n`;
+                for (const f of alertFestivals) {
+                  slackMsg += `• *${f.name}* — ${formatDateNice(f.date)} (${f.days} day${f.days === 1 ? '' : 's'} away!)\n`;
+                  if (f.keywords.length > 0) {
+                    slackMsg += `  Keywords: ${f.keywords.join(', ')}\n`;
+                  }
+                  if (f.dialects.length > 0) {
+                    slackMsg += `  Dialects: ${f.dialects.map(d => d.charAt(0).toUpperCase() + d.slice(1)).join(', ')}\n`;
+                  }
+                  slackMsg += `  → ASO CEO and SEO agents notified\n`;
+                }
+                slackMsg += '\n';
+              }
+
+              if (reminderFestivals.length > 0) {
+                slackMsg += `📅 COMING SOON (31-60 days):\n`;
+                for (const f of reminderFestivals) {
+                  slackMsg += `• *${f.name}* — ${formatDateNice(f.date)} (${f.days} days)\n`;
+                  if (f.keywords.length > 0) {
+                    slackMsg += `  Keywords: ${f.keywords.join(', ')}\n`;
+                  }
+                  if (f.dialects.length > 0) {
+                    slackMsg += `  Dialects: ${f.dialects.map(d => d.charAt(0).toUpperCase() + d.slice(1)).join(', ')}\n`;
+                  }
+                }
+                slackMsg += '\n';
+              }
+            }
+
+            // Calculate next month's 1st for next check date
+            const nextCheckDate = new Date(today);
+            nextCheckDate.setMonth(nextCheckDate.getMonth() + 1);
+            nextCheckDate.setDate(1);
+            const nextCheckStr = nextCheckDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+
+            slackMsg += `Next check: ${nextCheckStr}\n`;
+            slackMsg += `_Automated by SEO/ASO Pipeline · 1st of every month_`;
+
+            // Post to Slack
+            try {
+              await postToSlack(slackMsg);
+              console.log('Posted to Slack successfully');
+            } catch (e) {
+              console.error('Failed to post to Slack:', e.message);
+            }
+
+            // Create Paperclip issues for ALERT festivals (within 30 days)
+            for (const festival of alertFestivals) {
+              if (festival.keywords.length === 0) {
+                console.log(`Skipping ${festival.name} — no keywords defined`);
+                continue;
+              }
+
+              const keywordList = festival.keywords.map(k => `- ${k}`).join('\n');
+              const revertDate = new Date(festival.date);
+              revertDate.setDate(revertDate.getDate() + 7);
+              const revertStr = revertDate.toISOString().split('T')[0];
+
+              // ASO CEO issue
+              const asoTitle = `[ASO] Seasonal Update: ${festival.name} in ${festival.days} days — add keywords`;
+              const isDupAso = await checkDuplicatePaperclipIssue(ASO_COMPANY_ID, asoTitle, PAPERCLIP_ASO_API_KEY);
+              if (!isDupAso) {
+                const asoDescription = `**Festival:** ${festival.name}\n` +
+                  `**Date:** ${festival.date} (${festival.days} days away)\n` +
+                  `**Dialects:** ${festival.dialects.join(', ')}\n\n` +
+                  `**Seasonal keywords to add to Play Store:**\n${keywordList}\n\n` +
+                  `**Current ASO keywords comparison:**\n` +
+                  `_(Review current keywords in Play Store Console and identify gaps)_\n\n` +
+                  `**Action items:**\n` +
+                  `1. Update Android short description (80 chars) to include festival context, e.g. "Watch ${festival.name} special songs & movies on Stage"\n` +
+                  `2. Update iOS keywords field (100 chars) with seasonal terms: ${festival.keywords.slice(0, 3).join(', ')}\n` +
+                  `3. Update Android full description to highlight ${festival.name} content\n` +
+                  `4. Add seasonal screenshots or feature graphic if available\n` +
+                  `5. **Revert seasonal keywords by ${revertStr}** (1 week after festival)\n\n` +
+                  `_Created by SEO/ASO Pipeline automated seasonal monitor_`;
+
+                try {
+                  const result = await createPaperclipIssue(ASO_COMPANY_ID, ASO_CEO_AGENT_ID, asoTitle, asoDescription, PAPERCLIP_ASO_API_KEY);
+                  console.log(`Created ASO Paperclip issue for ${festival.name}: status ${result.statusCode}`);
+                  await wakeAgent(ASO_COMPANY_ID, ASO_CEO_AGENT_ID, PAPERCLIP_ASO_API_KEY);
+                } catch (e) {
+                  console.error(`Failed to create ASO issue for ${festival.name}:`, e.message);
+                }
+              } else {
+                console.log(`Skipping duplicate ASO issue for ${festival.name}`);
+              }
+
+              // SEO agent issue
+              const seoTitle = `[SEO] Seasonal Content Push: ${festival.name} in ${festival.days} days`;
+              const isDupSeo = await checkDuplicatePaperclipIssue(SEO_COMPANY_ID, seoTitle, PAPERCLIP_API_KEY);
+              if (!isDupSeo) {
+                const dialectPages = festival.dialects.map(d => `- stage.in/${d}/`).join('\n');
+                const contentSuggestions = festival.keywords.map(k => `- "Best ${festival.name} songs on Stage.in" targeting "${k}"`).slice(0, 3).join('\n');
+
+                const seoDescription = `**Festival:** ${festival.name}\n` +
+                  `**Date:** ${festival.date} (${festival.days} days away)\n` +
+                  `**Target dialects:** ${festival.dialects.join(', ')}\n\n` +
+                  `**Seasonal keywords to target:**\n${keywordList}\n\n` +
+                  `**Content recommendations:**\n${contentSuggestions}\n\n` +
+                  `**Action items:**\n` +
+                  `1. Create or update landing page: "Best ${festival.name} Songs & Videos on Stage"\n` +
+                  `2. Update meta descriptions on dialect pages to include festival context:\n${dialectPages}\n` +
+                  `   Example meta: "Watch ${festival.name} special ${festival.dialects[0] || ''} songs, movies & web series on Stage. Stream free online."\n` +
+                  `3. Add internal links from homepage to festival content pages\n` +
+                  `4. Submit updated pages to Google Indexing API:\n` +
+                  `   \`POST https://indexing.googleapis.com/v3/urlNotifications:publish\`\n` +
+                  `   For each updated dialect page URL\n` +
+                  `5. Create social media content targeting festival keywords\n` +
+                  `6. **Revert seasonal meta descriptions by ${revertStr}** (1 week after festival)\n\n` +
+                  `_Created by SEO/ASO Pipeline automated seasonal monitor_`;
+
+                try {
+                  const result = await createPaperclipIssue(SEO_COMPANY_ID, SEO_AGENT_ID, seoTitle, seoDescription, PAPERCLIP_API_KEY);
+                  console.log(`Created SEO Paperclip issue for ${festival.name}: status ${result.statusCode}`);
+                  await wakeAgent(SEO_COMPANY_ID, SEO_AGENT_ID, PAPERCLIP_API_KEY);
+                } catch (e) {
+                  console.error(`Failed to create SEO issue for ${festival.name}:`, e.message);
+                }
+              } else {
+                console.log(`Skipping duplicate SEO issue for ${festival.name}`);
+              }
+            }
+
+            console.log('Seasonal Keywords Alert complete');
+          }
+
+          main().catch(err => {
+            console.error('Fatal error:', err);
+            process.exit(1);
+          });
+          EOF
