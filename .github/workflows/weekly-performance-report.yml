@@ -13,7 +13,7 @@ jobs:
     steps:
       - name: Setup keys
         run: |
-          echo "${{ secrets.GSC_SERVICE_ACCOUNT_KEY }}" | base64 -d > /tmp/gsc-key.json
+          echo '${{ secrets.GSC_SERVICE_ACCOUNT_KEY }}' > /tmp/gsc-key.json
           echo "${{ secrets.PLAY_STORE_JSON_KEY_B64 }}" | base64 -d > /tmp/play-store-key.json
 
       - name: Install dependencies
