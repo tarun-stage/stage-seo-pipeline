@@ -1,0 +1,243 @@
+name: SEO VideoObject Schema Checker
+
+on:
+  schedule:
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+jobs:
+  schema-checker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check VideoObject and schema presence
+        env:
+          PAPERCLIP_API_KEY: ${{ secrets.PAPERCLIP_API_KEY }}
+          PAPERCLIP_API_URL: ${{ secrets.PAPERCLIP_API_URL }}
+          SLACK_WEBHOOK: '${{ secrets.SLACK_WEBHOOK_URL }}'
+          COMPANY_ID: 'f0a0b0c0-0001-4000-8000-000000000001'
+          AGENT_ID: 'f1000001-0002-4000-8000-000000000001'
+        run: |
+          set -e
+
+          TODAY=$(date -u +%Y-%m-%d)
+
+          # Watch pages (VideoObject check)
+          WATCH_PAGES=(
+            "https://www.stage.in/hi/watch/vaada-2025"
+            "https://www.stage.in/hi/watch/chidibaaz"
+            "https://www.stage.in/hi/watch/jaan-legi-sonam"
+            "https://www.stage.in/hi/watch/mahapunarjanam"
+            "https://www.stage.in/hi/watch/jagat"
+            "https://www.stage.in/en/watch/vaada-2025"
+          )
+
+          # Dialect pages (FAQPage check)
+          DIALECT_PAGES=(
+            "https://www.stage.in/hi/haryanvi"
+            "https://www.stage.in/hi/rajasthani"
+            "https://www.stage.in/hi/bhojpuri"
+            "https://www.stage.in/hi/gujarati"
+          )
+
+          # All pages (for BreadcrumbList check)
+          ALL_PAGES=(
+            "https://www.stage.in/hi/watch/vaada-2025"
+            "https://www.stage.in/hi/watch/chidibaaz"
+            "https://www.stage.in/hi/watch/jaan-legi-sonam"
+            "https://www.stage.in/hi/watch/mahapunarjanam"
+            "https://www.stage.in/hi/watch/jagat"
+            "https://www.stage.in/en/watch/vaada-2025"
+            "https://www.stage.in/hi/haryanvi"
+            "https://www.stage.in/hi/rajasthani"
+            "https://www.stage.in/hi/bhojpuri"
+            "https://www.stage.in/hi/gujarati"
+          )
+
+          MISSING_VIDEOOBJECT=()
+          MISSING_FAQPAGE=()
+          MISSING_BREADCRUMB=()
+          VIDEO_MISSING_COUNT=0
+          FAQ_MISSING_COUNT=0
+          BREADCRUMB_MISSING_COUNT=0
+
+          # Declare associative array to cache page HTML
+          declare -A PAGE_HTML_CACHE
+
+          fetch_page() {
+            local url="$1"
+            if [ -z "${PAGE_HTML_CACHE[$url]}" ]; then
+              PAGE_HTML_CACHE[$url]=$(curl -s --max-time 15 -A "Mozilla/5.0 (compatible; SEOBot/1.0)" "$url" 2>/dev/null || echo "")
+            fi
+            echo "${PAGE_HTML_CACHE[$url]}"
+          }
+
+          has_schema() {
+            local html="$1"
+            local schema="$2"
+            if echo "$html" | grep -qF '"@type":"'"$schema"'"' || echo "$html" | grep -qF '"@type": "'"$schema"'"'; then
+              return 0
+            fi
+            return 1
+          }
+
+          echo "=== Checking VideoObject on watch pages ==="
+          for PAGE_URL in "${WATCH_PAGES[@]}"; do
+            echo "Fetching: $PAGE_URL"
+            HTML=$(fetch_page "$PAGE_URL")
+            PAGE_PATH=$(echo "$PAGE_URL" | sed 's|https://www.stage.in||')
+            if has_schema "$HTML" "VideoObject"; then
+              echo "  ✅ VideoObject found"
+            else
+              echo "  ❌ VideoObject MISSING"
+              MISSING_VIDEOOBJECT+=("$PAGE_PATH")
+              ((VIDEO_MISSING_COUNT++)) || true
+            fi
+            sleep 1
+          done
+
+          echo "=== Checking FAQPage on dialect pages ==="
+          for PAGE_URL in "${DIALECT_PAGES[@]}"; do
+            echo "Fetching: $PAGE_URL"
+            HTML=$(fetch_page "$PAGE_URL")
+            PAGE_PATH=$(echo "$PAGE_URL" | sed 's|https://www.stage.in||')
+            if has_schema "$HTML" "FAQPage"; then
+              echo "  ✅ FAQPage found"
+            else
+              echo "  ❌ FAQPage MISSING"
+              MISSING_FAQPAGE+=("$PAGE_PATH")
+              ((FAQ_MISSING_COUNT++)) || true
+            fi
+            sleep 1
+          done
+
+          echo "=== Checking BreadcrumbList on all pages ==="
+          for PAGE_URL in "${ALL_PAGES[@]}"; do
+            echo "Fetching: $PAGE_URL"
+            HTML=$(fetch_page "$PAGE_URL")
+            PAGE_PATH=$(echo "$PAGE_URL" | sed 's|https://www.stage.in||')
+            if has_schema "$HTML" "BreadcrumbList"; then
+              echo "  ✅ BreadcrumbList found"
+            else
+              echo "  ❌ BreadcrumbList MISSING"
+              MISSING_BREADCRUMB+=("$PAGE_PATH")
+              ((BREADCRUMB_MISSING_COUNT++)) || true
+            fi
+            sleep 1
+          done
+
+          WATCH_TOTAL=${#WATCH_PAGES[@]}
+          DIALECT_TOTAL=${#DIALECT_PAGES[@]}
+          ALL_TOTAL=${#ALL_PAGES[@]}
+
+          WATCH_OK=$((WATCH_TOTAL - VIDEO_MISSING_COUNT))
+          FAQ_OK=$((DIALECT_TOTAL - FAQ_MISSING_COUNT))
+          BREADCRUMB_OK=$((ALL_TOTAL - BREADCRUMB_MISSING_COUNT))
+
+          # VideoObject status icon
+          if [ $VIDEO_MISSING_COUNT -eq 0 ]; then VO_ICON="✅"; else VO_ICON="❌"; fi
+          if [ $FAQ_MISSING_COUNT -eq 0 ]; then FAQ_ICON="✅"; else FAQ_ICON="❌"; fi
+          if [ $BREADCRUMB_MISSING_COUNT -eq 0 ]; then BC_ICON="✅"; else BC_ICON="❌"; fi
+
+          # Build Slack message
+          SLACK_TEXT="*SEO Schema Check — ${TODAY}* 📋\n\n"
+          SLACK_TEXT="${SLACK_TEXT}*VideoObject* (watch pages): ${VIDEO_MISSING_COUNT}/${WATCH_TOTAL} missing ${VO_ICON}\n"
+          SLACK_TEXT="${SLACK_TEXT}*FAQPage* (dialect pages): ${FAQ_MISSING_COUNT}/${DIALECT_TOTAL} missing ${FAQ_ICON}\n"
+          SLACK_TEXT="${SLACK_TEXT}*BreadcrumbList* (all pages): ${BREADCRUMB_MISSING_COUNT}/${ALL_TOTAL} missing ${BC_ICON}\n"
+
+          if [ ${#MISSING_VIDEOOBJECT[@]} -gt 0 ]; then
+            SLACK_TEXT="${SLACK_TEXT}\nMissing VideoObject on:\n"
+            for p in "${MISSING_VIDEOOBJECT[@]}"; do
+              SLACK_TEXT="${SLACK_TEXT}• ${p} ❌\n"
+            done
+          fi
+
+          if [ ${#MISSING_FAQPAGE[@]} -gt 0 ]; then
+            SLACK_TEXT="${SLACK_TEXT}\nMissing FAQPage on:\n"
+            for p in "${MISSING_FAQPAGE[@]}"; do
+              SLACK_TEXT="${SLACK_TEXT}• ${p} ❌\n"
+            done
+          fi
+
+          if [ ${#MISSING_BREADCRUMB[@]} -gt 0 ]; then
+            SLACK_TEXT="${SLACK_TEXT}\nMissing BreadcrumbList on:\n"
+            for p in "${MISSING_BREADCRUMB[@]}"; do
+              SLACK_TEXT="${SLACK_TEXT}• ${p} ❌\n"
+            done
+          fi
+
+          if [ $VIDEO_MISSING_COUNT -gt 0 ]; then
+            SLACK_TEXT="${SLACK_TEXT}\n*Priority:* VideoObject = Google Watch button eligibility. Agent notified."
+          fi
+
+          # Post to Slack
+          curl -s -X POST "$SLACK_WEBHOOK" \
+            -H 'Content-Type: application/json' \
+            -d "{\"text\": \"$(echo -e "$SLACK_TEXT" | sed 's/"/\\"/g')\"}" || true
+
+          # Create Paperclip issue if any schema is missing
+          TOTAL_MISSING=$((VIDEO_MISSING_COUNT + FAQ_MISSING_COUNT + BREADCRUMB_MISSING_COUNT))
+
+          if [ $TOTAL_MISSING -gt 0 ]; then
+            ISSUE_TITLE="[SEO] Schema gaps: ${VIDEO_MISSING_COUNT} VideoObject missing, ${FAQ_MISSING_COUNT} FAQPage missing — ${TODAY}"
+
+            # Priority: high if VideoObject missing on any watch page
+            if [ $VIDEO_MISSING_COUNT -gt 0 ]; then
+              PRIORITY="high"
+            else
+              PRIORITY="low"
+            fi
+
+            ISSUE_DESC="## SEO Schema Gap Report\n\n### VideoObject (Watch Pages) — ${VIDEO_MISSING_COUNT}/${WATCH_TOTAL} missing\n"
+            for p in "${MISSING_VIDEOOBJECT[@]}"; do
+              ISSUE_DESC="${ISSUE_DESC}- ${p}\n"
+            done
+
+            ISSUE_DESC="${ISSUE_DESC}\n### FAQPage (Dialect Pages) — ${FAQ_MISSING_COUNT}/${DIALECT_TOTAL} missing\n"
+            for p in "${MISSING_FAQPAGE[@]}"; do
+              ISSUE_DESC="${ISSUE_DESC}- ${p}\n"
+            done
+
+            ISSUE_DESC="${ISSUE_DESC}\n### BreadcrumbList (All Pages) — ${BREADCRUMB_MISSING_COUNT}/${ALL_TOTAL} missing\n"
+            for p in "${MISSING_BREADCRUMB[@]}"; do
+              ISSUE_DESC="${ISSUE_DESC}- ${p}\n"
+            done
+
+            ISSUE_DESC="${ISSUE_DESC}\n### Implementation Notes\n\n1. Add JSON-LD structured data in each content page's \`page.tsx\` — NOT globally in \`layout.tsx\`\n2. VideoObject schema is required for Google Watch button eligibility in search results\n3. Test your implementation: https://search.google.com/test/rich-results\n4. Refer to Google's VideoObject docs: https://developers.google.com/search/docs/appearance/structured-data/video\n5. For FAQPage on dialect pages, include the most common questions about the dialect/language\n6. BreadcrumbList should reflect the full path hierarchy of the page"
+
+            # Dedup check
+            EXISTING=$(curl -s \
+              -H "Authorization: Bearer ${PAPERCLIP_API_KEY}" \
+              "${PAPERCLIP_API_URL}/api/companies/${COMPANY_ID}/issues" \
+              | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+title = '${ISSUE_TITLE}'
+found = [i['id'] for i in data if isinstance(i, dict) and i.get('title') == title]
+print(found[0] if found else '')
+" 2>/dev/null || echo "")
+
+            if [ -z "$EXISTING" ]; then
+              curl -s -X POST \
+                -H "Authorization: Bearer ${PAPERCLIP_API_KEY}" \
+                -H "Content-Type: application/json" \
+                "${PAPERCLIP_API_URL}/api/companies/${COMPANY_ID}/issues" \
+                -d "{
+                  \"title\": \"${ISSUE_TITLE}\",
+                  \"priority\": \"${PRIORITY}\",
+                  \"description\": \"$(echo -e "$ISSUE_DESC" | sed 's/"/\\"/g')\"
+                }" || true
+
+              # Wake agent
+              curl -s -X POST \
+                -H "Authorization: Bearer ${PAPERCLIP_API_KEY}" \
+                -H "Content-Type: application/json" \
+                "${PAPERCLIP_API_URL}/api/agents/${AGENT_ID}/wakeup" \
+                -d "{\"reason\": \"Schema gaps detected: ${VIDEO_MISSING_COUNT} VideoObject, ${FAQ_MISSING_COUNT} FAQPage, ${BREADCRUMB_MISSING_COUNT} BreadcrumbList missing. Check Paperclip for details.\"}" || true
+            else
+              echo "Paperclip issue already exists for today: $EXISTING"
+            fi
+          fi
+
+          echo "Schema check complete. VideoObject missing: $VIDEO_MISSING_COUNT, FAQPage missing: $FAQ_MISSING_COUNT, BreadcrumbList missing: $BREADCRUMB_MISSING_COUNT"
