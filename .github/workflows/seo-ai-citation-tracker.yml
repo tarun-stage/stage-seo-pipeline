@@ -1,0 +1,403 @@
+name: SEO AI Citation Tracker
+
+on:
+  schedule:
+    - cron: '30 8 * * 5' # Every Friday at 2 PM IST (8:30 AM UTC)
+  workflow_dispatch:
+
+jobs:
+  track-citations:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run AI Citation Tracker
+        env:
+          BRAVE_SEARCH_API_KEY: ${{ secrets.BRAVE_SEARCH_API_KEY }}
+          GOOGLE_SEARCH_API_KEY: ${{ secrets.GOOGLE_SEARCH_API_KEY }}
+          GOOGLE_SEARCH_CX: ${{ secrets.GOOGLE_SEARCH_CX }}
+          PERPLEXITY_API_KEY: ${{ secrets.PERPLEXITY_API_KEY }}
+          PAPERCLIP_API_KEY: ${{ secrets.PAPERCLIP_API_KEY }}
+          SLACK_WEBHOOK: '${{ secrets.SLACK_WEBHOOK_URL }}'
+          SEO_COMPANY_ID: 'f0a0b0c0-0001-4000-8000-000000000001'
+          SEO_AGENT_ID: 'f1000001-0002-4000-8000-000000000001'
+        run: |
+          node << 'EOF'
+          const https = require('https');
+
+          const QUERIES = [
+            'best haryanvi movies online watch',
+            'haryanvi web series streaming app india',
+            'haryanvi comedy shows online',
+            'rajasthani folk music streaming',
+            'bhojpuri web series free watch',
+            'bhojpuri movies online india',
+            'regional ott india haryanvi rajasthani bhojpuri',
+            'Sapna Choudhary songs online',
+            'stage.in ott platform',
+            'haryanvi movies app like chaupal',
+            'best app for regional indian content',
+          ];
+
+          const SLACK_WEBHOOK = process.env.SLACK_WEBHOOK;
+          const PAPERCLIP_API_KEY = process.env.PAPERCLIP_API_KEY;
+          const SEO_COMPANY_ID = process.env.SEO_COMPANY_ID;
+          const SEO_AGENT_ID = process.env.SEO_AGENT_ID;
+          const BRAVE_API_KEY = process.env.BRAVE_SEARCH_API_KEY;
+          const GOOGLE_API_KEY = process.env.GOOGLE_SEARCH_API_KEY;
+          const GOOGLE_CX = process.env.GOOGLE_SEARCH_CX;
+          const PERPLEXITY_API_KEY = process.env.PERPLEXITY_API_KEY;
+
+          function mentionsStage(text) {
+            const lower = (text || '').toLowerCase();
+            return lower.includes('stage.in') || lower.includes('stage ott') || lower.includes('stagedot');
+          }
+
+          function httpsGet(url, headers = {}) {
+            return new Promise((resolve, reject) => {
+              const parsedUrl = new URL(url);
+              const options = {
+                hostname: parsedUrl.hostname,
+                path: parsedUrl.pathname + parsedUrl.search,
+                method: 'GET',
+                headers: {
+                  'User-Agent': 'Mozilla/5.0 (compatible; SEO-Citation-Tracker/1.0)',
+                  ...headers,
+                },
+              };
+              const req = https.request(options, (res) => {
+                let data = '';
+                res.on('data', (chunk) => { data += chunk; });
+                res.on('end', () => {
+                  try {
+                    resolve({ status: res.statusCode, body: JSON.parse(data) });
+                  } catch (e) {
+                    resolve({ status: res.statusCode, body: data });
+                  }
+                });
+              });
+              req.on('error', reject);
+              req.setTimeout(15000, () => { req.destroy(); reject(new Error('Timeout')); });
+              req.end();
+            });
+          }
+
+          function httpsPost(url, body, headers = {}) {
+            return new Promise((resolve, reject) => {
+              const parsedUrl = new URL(url);
+              const payload = JSON.stringify(body);
+              const options = {
+                hostname: parsedUrl.hostname,
+                path: parsedUrl.pathname + parsedUrl.search,
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Content-Length': Buffer.byteLength(payload),
+                  ...headers,
+                },
+              };
+              const req = https.request(options, (res) => {
+                let data = '';
+                res.on('data', (chunk) => { data += chunk; });
+                res.on('end', () => {
+                  try {
+                    resolve({ status: res.statusCode, body: JSON.parse(data) });
+                  } catch (e) {
+                    resolve({ status: res.statusCode, body: data });
+                  }
+                });
+              });
+              req.on('error', reject);
+              req.setTimeout(30000, () => { req.destroy(); reject(new Error('Timeout')); });
+              req.write(payload);
+              req.end();
+            });
+          }
+
+          // Approach 1: Brave Search API
+          async function checkBrave(query) {
+            if (!BRAVE_API_KEY) return null;
+            try {
+              const url = `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=10`;
+              const res = await httpsGet(url, {
+                'Accept': 'application/json',
+                'X-Subscription-Token': BRAVE_API_KEY,
+              });
+              if (res.status !== 200 || typeof res.body !== 'object') return null;
+              const data = res.body;
+
+              // Check web results
+              const webResults = data.web?.results || [];
+              for (const result of webResults) {
+                if (mentionsStage(result.url) || mentionsStage(result.title) || mentionsStage(result.description)) {
+                  return { cited: true, via: 'Brave', detail: result.url };
+                }
+              }
+
+              // Check infobox
+              if (data.infobox && mentionsStage(JSON.stringify(data.infobox))) {
+                return { cited: true, via: 'Brave', detail: 'infobox' };
+              }
+
+              // Check discussions
+              if (data.discussions && mentionsStage(JSON.stringify(data.discussions))) {
+                return { cited: true, via: 'Brave', detail: 'discussions' };
+              }
+
+              return { cited: false, via: 'Brave' };
+            } catch (e) {
+              console.error(`Brave error for "${query}":`, e.message);
+              return null;
+            }
+          }
+
+          // Approach 2: DuckDuckGo Instant Answer
+          async function checkDuckDuckGo(query) {
+            try {
+              const url = `https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1`;
+              const res = await httpsGet(url);
+              if (res.status !== 200 || typeof res.body !== 'object') return null;
+              const data = res.body;
+
+              if (mentionsStage(data.AbstractText) || mentionsStage(data.AbstractURL)) {
+                return { cited: true, via: 'DuckDuckGo', detail: 'abstract' };
+              }
+
+              const relatedTopics = JSON.stringify(data.RelatedTopics || []);
+              if (mentionsStage(relatedTopics)) {
+                return { cited: true, via: 'DuckDuckGo', detail: 'related topics' };
+              }
+
+              return { cited: false, via: 'DuckDuckGo' };
+            } catch (e) {
+              console.error(`DuckDuckGo error for "${query}":`, e.message);
+              return null;
+            }
+          }
+
+          // Approach 3: Google Custom Search
+          async function checkGoogle(query) {
+            if (!GOOGLE_API_KEY || !GOOGLE_CX) return null;
+            try {
+              const url = `https://www.googleapis.com/customsearch/v1?key=${GOOGLE_API_KEY}&cx=${GOOGLE_CX}&q=${encodeURIComponent(query)}`;
+              const res = await httpsGet(url);
+              if (res.status !== 200 || typeof res.body !== 'object') return null;
+              const items = res.body.items || [];
+
+              for (let i = 0; i < Math.min(10, items.length); i++) {
+                const item = items[i];
+                if (mentionsStage(item.link) || mentionsStage(item.title) || mentionsStage(item.snippet)) {
+                  return { cited: true, via: 'Google', detail: `#${i + 1} ${item.link}` };
+                }
+              }
+
+              return { cited: false, via: 'Google' };
+            } catch (e) {
+              console.error(`Google error for "${query}":`, e.message);
+              return null;
+            }
+          }
+
+          // Approach 4: Perplexity
+          async function checkPerplexity(query) {
+            if (!PERPLEXITY_API_KEY) return null;
+            try {
+              const res = await httpsPost(
+                'https://api.perplexity.ai/chat/completions',
+                {
+                  model: 'sonar',
+                  messages: [{ role: 'user', content: query }],
+                  search_recency_filter: 'week',
+                },
+                {
+                  'Authorization': `Bearer ${PERPLEXITY_API_KEY}`,
+                }
+              );
+              if (res.status !== 200 || typeof res.body !== 'object') return null;
+              const content = res.body.choices?.[0]?.message?.content || '';
+              const cited = mentionsStage(content);
+              return { cited, via: 'Perplexity', detail: cited ? '#mentioned' : '' };
+            } catch (e) {
+              console.error(`Perplexity error for "${query}":`, e.message);
+              return null;
+            }
+          }
+
+          // Check a single query across all approaches
+          async function checkQuery(query) {
+            const results = await Promise.all([
+              checkBrave(query),
+              checkDuckDuckGo(query),
+              checkGoogle(query),
+              checkPerplexity(query),
+            ]);
+
+            // Find first cited result
+            const citedResult = results.find((r) => r && r.cited);
+            if (citedResult) {
+              return { query, cited: true, via: citedResult.via, detail: citedResult.detail };
+            }
+
+            // All ran but none cited
+            const anyRan = results.some((r) => r !== null);
+            return { query, cited: false, via: anyRan ? 'all' : 'none' };
+          }
+
+          async function sendSlack(message) {
+            try {
+              await httpsPost(SLACK_WEBHOOK, { text: message });
+            } catch (e) {
+              console.error('Slack error:', e.message);
+            }
+          }
+
+          async function createPaperclipIssue(citedCount, total, results) {
+            if (!PAPERCLIP_API_KEY) {
+              console.log('No PAPERCLIP_API_KEY set, skipping issue creation.');
+              return;
+            }
+
+            const rate = Math.round((citedCount / total) * 100);
+            const priority = rate < 30 ? 'high' : 'low';
+            const today = new Date().toISOString().split('T')[0];
+
+            const notCited = results.filter((r) => !r.cited);
+            const citedList = results.filter((r) => r.cited);
+
+            const tableRows = results
+              .map((r) => `| ${r.query} | ${r.cited ? '✅ Yes' : '❌ No'} | ${r.via || '-'} | ${r.detail || '-'} |`)
+              .join('\n');
+
+            const notCitedList = notCited
+              .map((r) => `- "${r.query}"`)
+              .join('\n');
+
+            const description = `## AI Citation Rate Report — ${today}
+
+**Overall:** ${citedCount}/${total} queries cite stage.in (${rate}%)
+
+## Citation Results
+
+| Query | Cited | Via | Detail |
+|-------|-------|-----|--------|
+${tableRows}
+
+## Non-Cited Queries
+${notCitedList}
+
+## Recommended Actions
+- Add answer-first content structure on dialect pages
+- Ensure FAQPage schema with direct answers on haryanvi/bhojpuri pages
+- Add statistics ('1200+ Haryanvi movies') to page copy
+- Check if llms.txt is returning 200 and contains sufficient content
+- Review seo-program.md for GEO signal improvement guidelines
+
+_Automated by SEO AI Citation Tracker · Every Friday_`;
+
+            const issuePayload = {
+              title: `[GEO] AI Citation Rate: ${citedCount}/${total} (${rate}%) — below target — ${today}`,
+              description,
+              priority,
+              company_id: SEO_COMPANY_ID,
+              agent_id: SEO_AGENT_ID,
+            };
+
+            try {
+              const res = await httpsPost(
+                'https://api.paperclip.com/v1/issues',
+                issuePayload,
+                {
+                  'Authorization': `Bearer ${PAPERCLIP_API_KEY}`,
+                }
+              );
+              console.log('Paperclip issue created:', res.status, JSON.stringify(res.body).slice(0, 200));
+            } catch (e) {
+              console.error('Paperclip error:', e.message);
+            }
+          }
+
+          async function main() {
+            console.log('Starting SEO AI Citation Tracker...');
+            console.log(`Checking ${QUERIES.length} queries across up to 4 sources.`);
+
+            const apisUsed = {
+              Perplexity: !!PERPLEXITY_API_KEY,
+              Brave: !!BRAVE_API_KEY,
+              DuckDuckGo: true,
+              Google: !!(GOOGLE_API_KEY && GOOGLE_CX),
+            };
+
+            // Run all queries
+            const results = [];
+            for (const query of QUERIES) {
+              console.log(`Checking: "${query}"`);
+              const result = await checkQuery(query);
+              results.push(result);
+              console.log(`  -> ${result.cited ? 'CITED' : 'not cited'} via ${result.via}${result.detail ? ' (' + result.detail + ')' : ''}`);
+            }
+
+            const citedResults = results.filter((r) => r.cited);
+            const notCitedResults = results.filter((r) => !r.cited);
+            const citedCount = citedResults.length;
+            const total = results.length;
+            const rate = Math.round((citedCount / total) * 100);
+
+            const today = new Date().toLocaleDateString('en-GB', {
+              year: 'numeric', month: 'long', day: '2-digit',
+            });
+
+            // Build Slack message
+            const citedLines = citedResults
+              .map((r) => `• "${r.query}" — found via ${r.via}${r.detail ? ' (' + r.detail + ')' : ''}`)
+              .join('\n');
+
+            const notCitedPreview = notCitedResults.slice(0, 5)
+              .map((r) => `• "${r.query}"`)
+              .join('\n');
+            const remaining = notCitedResults.length > 5 ? `\n• ...${notCitedResults.length - 5} more` : '';
+
+            const apisLine = Object.entries(apisUsed)
+              .map(([name, used]) => `${name} ${used ? '✅' : '❌ (key not set)'}`)
+              .join(' | ');
+
+            const actionLine = rate < 50
+              ? '*Action:* Citation rate below 50% — agent notified to improve GEO signals.'
+              : '*Action:* Citation rate above 50% — keep monitoring.';
+
+            const slackMessage = `*SEO AI Citation Report — ${today}* 🤖
+
+*Overall Citation Rate:* ${citedCount}/${total} queries (${rate}%)
+
+*Cited ✅:*
+${citedLines || '• None'}
+
+*Not Cited ❌:*
+${notCitedPreview}${remaining}
+
+*APIs used:* ${apisLine}
+
+${actionLine}
+
+_Automated by SEO Pipeline · Every Friday_`;
+
+            console.log('\n=== SLACK MESSAGE ===');
+            console.log(slackMessage);
+            console.log('====================\n');
+
+            await sendSlack(slackMessage);
+            console.log('Slack notification sent.');
+
+            // Create Paperclip issue if rate < 50%
+            if (rate < 50) {
+              console.log(`Citation rate ${rate}% < 50%, creating Paperclip issue...`);
+              await createPaperclipIssue(citedCount, total, results);
+            } else {
+              console.log(`Citation rate ${rate}% >= 50%, no Paperclip issue needed.`);
+            }
+
+            console.log('Done.');
+          }
+
+          main().catch((e) => {
+            console.error('Fatal error:', e);
+            process.exit(1);
+          });
+          EOF
