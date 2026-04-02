@@ -1,0 +1,295 @@
+name: SEO Backlink & Link Health Monitor
+
+on:
+  schedule:
+    - cron: '30 5 * * 3'
+  workflow_dispatch:
+
+jobs:
+  backlink-monitor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check internal links, sitemaps, and backlink health
+        env:
+          SEMRUSH_API_KEY: ${{ secrets.SEMRUSH_API_KEY }}
+          PAPERCLIP_API_KEY: ${{ secrets.PAPERCLIP_API_KEY }}
+          PAPERCLIP_API_URL: ${{ secrets.PAPERCLIP_API_URL }}
+          SLACK_WEBHOOK: '${{ secrets.SLACK_WEBHOOK_URL }}'
+          COMPANY_ID: 'f0a0b0c0-0001-4000-8000-000000000001'
+          AGENT_ID: 'f1000001-0002-4000-8000-000000000001'
+        run: |
+          set -e
+
+          TODAY=$(date -u +%Y-%m-%d)
+          SEVEN_DAYS_AGO=$(date -u -d '7 days ago' +%Y-%m-%d 2>/dev/null || date -u -v-7d +%Y-%m-%d)
+
+          # Key pages to crawl for internal links
+          SEED_PAGES=(
+            "https://www.stage.in/"
+            "https://www.stage.in/hi/haryanvi"
+            "https://www.stage.in/movies"
+            "https://www.stage.in/shows"
+            "https://www.stage.in/hi/watch/vaada-2025"
+          )
+
+          BROKEN_LINKS=()
+          REDIRECT_CHAINS=()
+          BROKEN_COUNT=0
+          CHAIN_COUNT=0
+
+          echo "=== Step 1: Internal broken link check ==="
+
+          for SEED in "${SEED_PAGES[@]}"; do
+            echo "Crawling seed page: $SEED"
+
+            # Fetch the page and extract all internal links
+            HTML=$(curl -s --max-time 15 -A "Mozilla/5.0 (compatible; SEOBot/1.0)" "$SEED" 2>/dev/null || echo "")
+
+            # Extract hrefs
+            HREFS=$(echo "$HTML" | grep -oP 'href="[^"]*"' | sed 's/href="//;s/"//' | grep -E '^/|stage\.in' | grep -v '^#' | head -20 || true)
+
+            while IFS= read -r href; do
+              [ -z "$href" ] && continue
+
+              # Normalize to full URL
+              if echo "$href" | grep -q '^/'; then
+                FULL_URL="https://www.stage.in${href}"
+              else
+                FULL_URL="$href"
+              fi
+
+              # Skip non-stage.in links, anchors, js:, mailto:
+              echo "$FULL_URL" | grep -qE '^https://www\.stage\.in' || continue
+              echo "$FULL_URL" | grep -qE '#|javascript:|mailto:' && continue
+
+              echo "  Checking: $FULL_URL"
+
+              # Follow redirects, capture response chain
+              RESPONSE=$(curl -s --max-time 10 -o /dev/null -w "%{http_code}:%{redirect_url}:%{num_redirects}" \
+                -L --max-redirs 5 "$FULL_URL" 2>/dev/null || echo "000::")
+
+              HTTP_CODE=$(echo "$RESPONSE" | cut -d: -f1)
+              NUM_REDIRECTS=$(echo "$RESPONSE" | cut -d: -f3)
+
+              if [ "$HTTP_CODE" = "404" ] || [ "$HTTP_CODE" = "410" ] || [ "$HTTP_CODE" = "500" ]; then
+                echo "    ❌ BROKEN: $HTTP_CODE"
+                BROKEN_LINKS+=("$FULL_URL (HTTP $HTTP_CODE from $SEED)")
+                ((BROKEN_COUNT++)) || true
+              elif [ "${NUM_REDIRECTS:-0}" -gt 2 ]; then
+                echo "    ⚠️ Redirect chain > 2 hops: $NUM_REDIRECTS hops"
+                REDIRECT_CHAINS+=("$FULL_URL (${NUM_REDIRECTS} hops from $SEED)")
+                ((CHAIN_COUNT++)) || true
+              fi
+
+              sleep 0.5
+            done <<< "$HREFS"
+          done
+
+          echo ""
+          echo "=== Step 2: New content internal link check (via sitemap) ==="
+
+          NEW_PAGES=()
+          NEW_PAGES_NO_INLINKS=()
+          NEW_PAGES_WITH_INLINKS=()
+
+          # Try both sitemap URLs
+          SITEMAP_URLS=$(curl -s --max-time 15 "https://www.stage.in/sitemap-index.xml" \
+            | grep -oP '<loc>\K[^<]+' | head -5 2>/dev/null || echo "")
+
+          if [ -z "$SITEMAP_URLS" ]; then
+            SITEMAP_URLS="https://www.stage.in/sitemap.xml"
+          fi
+
+          # Fetch all URLs from sitemaps and filter by lastmod in last 7 days
+          while IFS= read -r SITEMAP_URL; do
+            [ -z "$SITEMAP_URL" ] && continue
+            echo "Fetching sitemap: $SITEMAP_URL"
+
+            SITEMAP_XML=$(curl -s --max-time 15 "$SITEMAP_URL" 2>/dev/null || echo "")
+
+            # Extract URL + lastmod pairs
+            # Parse XML by finding <url> blocks
+            echo "$SITEMAP_XML" | python3 -c "
+import sys, re
+
+content = sys.stdin.read()
+urls = re.findall(r'<url>(.*?)</url>', content, re.DOTALL)
+for url_block in urls:
+    loc_match = re.search(r'<loc>([^<]+)</loc>', url_block)
+    lastmod_match = re.search(r'<lastmod>([^<]+)</lastmod>', url_block)
+    if loc_match:
+        loc = loc_match.group(1).strip()
+        lastmod = lastmod_match.group(1).strip()[:10] if lastmod_match else ''
+        print(f'{lastmod}|{loc}')
+" 2>/dev/null | while IFS='|' read -r lastmod loc; do
+              if [ -n "$lastmod" ] && [[ "$lastmod" > "$SEVEN_DAYS_AGO" || "$lastmod" == "$TODAY" ]]; then
+                echo "$loc" >> /tmp/new_pages_raw.txt
+              fi
+            done
+
+          done <<< "$SITEMAP_URLS"
+
+          # Deduplicate
+          if [ -f /tmp/new_pages_raw.txt ]; then
+            sort -u /tmp/new_pages_raw.txt > /tmp/new_pages.txt
+            mapfile -t NEW_PAGES < /tmp/new_pages.txt
+          fi
+
+          NEW_TOTAL=${#NEW_PAGES[@]}
+          echo "Found $NEW_TOTAL new pages in last 7 days"
+
+          # For each new page, check if any seed page links to it
+          for NEW_PAGE in "${NEW_PAGES[@]}"; do
+            [ -z "$NEW_PAGE" ] && continue
+            NEW_PATH=$(echo "$NEW_PAGE" | sed 's|https://www.stage.in||')
+            echo "  Checking internal links to: $NEW_PATH"
+
+            FOUND_LINK=0
+            LINKING_COUNT=0
+
+            for SEED in "${SEED_PAGES[@]}"; do
+              HTML=$(curl -s --max-time 15 -A "Mozilla/5.0 (compatible; SEOBot/1.0)" "$SEED" 2>/dev/null || echo "")
+              if echo "$HTML" | grep -qF "$NEW_PATH"; then
+                ((LINKING_COUNT++)) || true
+                FOUND_LINK=1
+              fi
+            done
+
+            PAGE_DISPLAY="${NEW_PATH}"
+            if [ $LINKING_COUNT -eq 0 ]; then
+              NEW_PAGES_NO_INLINKS+=("${PAGE_DISPLAY} ← 0 internal links ⚠️")
+            else
+              NEW_PAGES_WITH_INLINKS+=("${PAGE_DISPLAY} ← ${LINKING_COUNT} internal links ✅")
+            fi
+          done
+
+          echo ""
+          echo "=== Step 3: SEMrush API check ==="
+
+          SEMRUSH_STATUS="SEMRUSH_API_KEY not configured — add to enable full backlink monitoring"
+          if [ -n "$SEMRUSH_API_KEY" ]; then
+            echo "SEMrush API key found, querying backlink data..."
+            SEMRUSH_RESPONSE=$(curl -s --max-time 15 \
+              "https://api.semrush.com/?type=backlinks_overview&key=${SEMRUSH_API_KEY}&target=stage.in&target_type=root_domain&export_columns=Ascore,Total,Domains_num,Urls_num,IpClassC,Ips,follows,nofollows" \
+              2>/dev/null || echo "")
+
+            if [ -n "$SEMRUSH_RESPONSE" ] && ! echo "$SEMRUSH_RESPONSE" | grep -qi "error"; then
+              SEMRUSH_STATUS="SEMrush data retrieved: $SEMRUSH_RESPONSE"
+            else
+              SEMRUSH_STATUS="SEMrush API returned error or empty response"
+            fi
+          fi
+
+          # Build Slack message
+          if [ $BROKEN_COUNT -eq 0 ]; then BROKEN_ICON="✅"; else BROKEN_ICON="❌"; fi
+          if [ $CHAIN_COUNT -eq 0 ]; then CHAIN_ICON="✅"; else CHAIN_ICON="⚠️"; fi
+
+          SLACK_TEXT="*SEO Link Health Report — ${TODAY}* 🔗\n\n"
+          SLACK_TEXT="${SLACK_TEXT}*Internal broken links:* ${BROKEN_COUNT} ${BROKEN_ICON}\n"
+
+          if [ ${#BROKEN_LINKS[@]} -gt 0 ]; then
+            for bl in "${BROKEN_LINKS[@]}"; do
+              SLACK_TEXT="${SLACK_TEXT}  • ${bl}\n"
+            done
+          fi
+
+          SLACK_TEXT="${SLACK_TEXT}*Redirect chains (>2 hops):* ${CHAIN_COUNT} ${CHAIN_ICON}\n"
+          if [ ${#REDIRECT_CHAINS[@]} -gt 0 ]; then
+            for rc in "${REDIRECT_CHAINS[@]}"; do
+              SLACK_TEXT="${SLACK_TEXT}  • ${rc}\n"
+            done
+          fi
+
+          SLACK_TEXT="${SLACK_TEXT}\n*New content (last 7 days):* ${NEW_TOTAL} pages\n"
+          for p in "${NEW_PAGES_NO_INLINKS[@]}"; do
+            SLACK_TEXT="${SLACK_TEXT}  • ${p}\n"
+          done
+          for p in "${NEW_PAGES_WITH_INLINKS[@]}"; do
+            SLACK_TEXT="${SLACK_TEXT}  • ${p}\n"
+          done
+
+          SLACK_TEXT="${SLACK_TEXT}\n*Backlink API:* ${SEMRUSH_STATUS}\n"
+          SLACK_TEXT="${SLACK_TEXT}\n_Automated by SEO Pipeline · Every Wednesday 11 AM IST_"
+
+          # Post to Slack
+          curl -s -X POST "$SLACK_WEBHOOK" \
+            -H 'Content-Type: application/json' \
+            -d "{\"text\": \"$(echo -e "$SLACK_TEXT" | sed 's/"/\\"/g')\"}" || true
+
+          # Create Paperclip issue if broken links found OR new content with 0 internal links
+          NO_INLINKS_COUNT=${#NEW_PAGES_NO_INLINKS[@]}
+          CREATE_ISSUE=0
+
+          if [ $BROKEN_COUNT -gt 0 ] || [ $NO_INLINKS_COUNT -gt 0 ]; then
+            CREATE_ISSUE=1
+          fi
+
+          if [ $CREATE_ISSUE -eq 1 ]; then
+            ISSUE_TITLE="[SEO] Link Health Issues: ${BROKEN_COUNT} broken links, ${NO_INLINKS_COUNT} orphan pages — ${TODAY}"
+
+            ISSUE_DESC="## SEO Link Health Report — ${TODAY}\n\n"
+
+            if [ $BROKEN_COUNT -gt 0 ]; then
+              ISSUE_DESC="${ISSUE_DESC}### Broken Internal Links (${BROKEN_COUNT})\n"
+              for bl in "${BROKEN_LINKS[@]}"; do
+                ISSUE_DESC="${ISSUE_DESC}- ${bl}\n"
+              done
+              ISSUE_DESC="${ISSUE_DESC}\n**Action:** Fix or redirect these URLs immediately to preserve link equity.\n\n"
+            fi
+
+            if [ $NO_INLINKS_COUNT -gt 0 ]; then
+              ISSUE_DESC="${ISSUE_DESC}### New Content with No Internal Links (${NO_INLINKS_COUNT})\n"
+              for p in "${NEW_PAGES_NO_INLINKS[@]}"; do
+                ISSUE_DESC="${ISSUE_DESC}- ${p}\n"
+              done
+              ISSUE_DESC="${ISSUE_DESC}\n**Action:** Add at least 1-2 internal links from relevant existing pages to these new pages. Orphan pages cannot be discovered by Googlebot efficiently.\n\n"
+            fi
+
+            if [ $CHAIN_COUNT -gt 0 ]; then
+              ISSUE_DESC="${ISSUE_DESC}### Redirect Chains > 2 hops (${CHAIN_COUNT})\n"
+              for rc in "${REDIRECT_CHAINS[@]}"; do
+                ISSUE_DESC="${ISSUE_DESC}- ${rc}\n"
+              done
+              ISSUE_DESC="${ISSUE_DESC}\n**Action:** Flatten redirect chains to direct 301s to preserve PageRank.\n\n"
+            fi
+
+            # Dedup check
+            EXISTING=$(curl -s \
+              -H "Authorization: Bearer ${PAPERCLIP_API_KEY}" \
+              "${PAPERCLIP_API_URL}/api/companies/${COMPANY_ID}/issues" \
+              | python3 -c "
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    title = '${ISSUE_TITLE}'
+    found = [i['id'] for i in data if isinstance(i, dict) and i.get('title') == title]
+    print(found[0] if found else '')
+except:
+    print('')
+" 2>/dev/null || echo "")
+
+            if [ -z "$EXISTING" ]; then
+              curl -s -X POST \
+                -H "Authorization: Bearer ${PAPERCLIP_API_KEY}" \
+                -H "Content-Type: application/json" \
+                "${PAPERCLIP_API_URL}/api/companies/${COMPANY_ID}/issues" \
+                -d "{
+                  \"title\": \"${ISSUE_TITLE}\",
+                  \"priority\": \"high\",
+                  \"description\": \"$(echo -e "$ISSUE_DESC" | sed 's/"/\\"/g')\"
+                }" || true
+
+              # Wake agent
+              curl -s -X POST \
+                -H "Authorization: Bearer ${PAPERCLIP_API_KEY}" \
+                -H "Content-Type: application/json" \
+                "${PAPERCLIP_API_URL}/api/agents/${AGENT_ID}/wakeup" \
+                -d "{\"reason\": \"Link health issues found: ${BROKEN_COUNT} broken links, ${NO_INLINKS_COUNT} orphan pages. Check Paperclip for details.\"}" || true
+            else
+              echo "Paperclip issue already exists for today: $EXISTING"
+            fi
+          fi
+
+          echo "Link health check complete. Broken: $BROKEN_COUNT, Chains: $CHAIN_COUNT, Orphan new pages: $NO_INLINKS_COUNT"
