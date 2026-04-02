@@ -1,0 +1,165 @@
+name: SEO Core Web Vitals Monitor
+
+on:
+  schedule:
+    - cron: '30 5 * * 1'
+  workflow_dispatch:
+
+jobs:
+  cwv-monitor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Run CWV checks and report
+        env:
+          PAGESPEED_API_KEY: ${{ secrets.PAGESPEED_API_KEY }}
+          PAPERCLIP_API_KEY: ${{ secrets.PAPERCLIP_API_KEY }}
+          PAPERCLIP_API_URL: ${{ secrets.PAPERCLIP_API_URL }}
+          SLACK_WEBHOOK: '${{ secrets.SLACK_WEBHOOK_URL }}'
+          COMPANY_ID: 'f0a0b0c0-0001-4000-8000-000000000001'
+          AGENT_ID: 'f1000001-0002-4000-8000-000000000001'
+        run: |
+          set -e
+
+          TODAY=$(date -u +%Y-%m-%d)
+
+          PAGES=(
+            "https://www.stage.in/"
+            "https://www.stage.in/hi/haryanvi"
+            "https://www.stage.in/hi/rajasthani"
+            "https://www.stage.in/hi/bhojpuri"
+            "https://www.stage.in/hi/gujarati"
+            "https://www.stage.in/movies"
+            "https://www.stage.in/shows"
+            "https://www.stage.in/hi/watch/vaada-2025"
+            "https://www.stage.in/hi/haryanvi/movies"
+            "https://www.stage.in/hi/bhojpuri/movies"
+          )
+
+          # Install jq if not present
+          which jq || (apt-get update -qq && apt-get install -y -qq jq)
+
+          POOR_PAGES=()
+          WARN_PAGES=()
+          GOOD_PAGES=()
+          POOR_DETAILS=""
+          WARN_DETAILS=""
+          GOOD_NAMES=""
+
+          for PAGE_URL in "${PAGES[@]}"; do
+            echo "Checking: $PAGE_URL"
+
+            ENCODED_URL=$(python3 -c "import urllib.parse; print(urllib.parse.quote('$PAGE_URL', safe=''))")
+            PSI_RESPONSE=$(curl -s --max-time 30 \
+              "https://www.googleapis.com/pagespeedonline/v5/runPagespeed?url=${ENCODED_URL}&strategy=mobile&key=${PAGESPEED_API_KEY}")
+
+            LCP=$(echo "$PSI_RESPONSE" | jq -r '.lighthouseResult.audits["largest-contentful-paint"].numericValue // 0')
+            CLS=$(echo "$PSI_RESPONSE" | jq -r '.lighthouseResult.audits["cumulative-layout-shift"].numericValue // 0')
+            TBT=$(echo "$PSI_RESPONSE" | jq -r '.lighthouseResult.audits["total-blocking-time"].numericValue // 0')
+            SCORE=$(echo "$PSI_RESPONSE" | jq -r '.lighthouseResult.categories.performance.score // 0')
+
+            # Convert LCP from ms to seconds for display
+            LCP_S=$(python3 -c "print(f'{float('$LCP')/1000:.1f}')")
+            CLS_D=$(python3 -c "print(f'{float('$CLS'):.2f}')")
+            TBT_INT=$(python3 -c "print(int(float('$TBT')))")
+
+            # Evaluate thresholds
+            LCP_BAD=$(python3 -c "print('yes' if float('$LCP') > 2500 else 'no')")
+            CLS_BAD=$(python3 -c "print('yes' if float('$CLS') > 0.1 else 'no')")
+            TBT_BAD=$(python3 -c "print('yes' if float('$TBT') > 300 else 'no')")
+
+            # Warning range: LCP 2000-2500, CLS 0.075-0.1, TBT 200-300
+            LCP_WARN=$(python3 -c "print('yes' if 2000 < float('$LCP') <= 2500 else 'no')")
+            CLS_WARN=$(python3 -c "print('yes' if 0.075 < float('$CLS') <= 0.1 else 'no')")
+            TBT_WARN=$(python3 -c "print('yes' if 200 < float('$TBT') <= 300 else 'no')")
+
+            # Emoji per metric
+            if [ "$LCP_BAD" = "yes" ]; then LCP_ICON="❌"; elif [ "$LCP_WARN" = "yes" ]; then LCP_ICON="⚠️"; else LCP_ICON="✅"; fi
+            if [ "$CLS_BAD" = "yes" ]; then CLS_ICON="❌"; elif [ "$CLS_WARN" = "yes" ]; then CLS_ICON="⚠️"; else CLS_ICON="✅"; fi
+            if [ "$TBT_BAD" = "yes" ]; then TBT_ICON="❌"; elif [ "$TBT_WARN" = "yes" ]; then TBT_ICON="⚠️"; else TBT_ICON="✅"; fi
+
+            # Extract path from URL
+            PAGE_PATH=$(echo "$PAGE_URL" | sed 's|https://www.stage.in||')
+            [ -z "$PAGE_PATH" ] && PAGE_PATH="/"
+
+            LINE="• ${PAGE_PATH} — LCP: ${LCP_S}s ${LCP_ICON} | CLS: ${CLS_D} ${CLS_ICON} | TBT: ${TBT_INT}ms ${TBT_ICON}"
+
+            if [ "$LCP_BAD" = "yes" ] || [ "$CLS_BAD" = "yes" ] || [ "$TBT_BAD" = "yes" ]; then
+              POOR_PAGES+=("$PAGE_URL")
+              POOR_DETAILS="${POOR_DETAILS}${LINE}\n"
+            elif [ "$LCP_WARN" = "yes" ] || [ "$CLS_WARN" = "yes" ] || [ "$TBT_WARN" = "yes" ]; then
+              WARN_PAGES+=("$PAGE_URL")
+              WARN_DETAILS="${WARN_DETAILS}${LINE}\n"
+            else
+              GOOD_PAGES+=("$PAGE_URL")
+              GOOD_NAMES="${GOOD_NAMES}${PAGE_PATH}, "
+            fi
+
+            sleep 2
+          done
+
+          POOR_COUNT=${#POOR_PAGES[@]}
+          WARN_COUNT=${#WARN_PAGES[@]}
+          GOOD_COUNT=${#GOOD_PAGES[@]}
+
+          # Build Slack message
+          SLACK_TEXT="*SEO Core Web Vitals Report — ${TODAY}* 🚦\n\n"
+          SLACK_TEXT="${SLACK_TEXT}*Strategy:* Mobile | *Pages checked:* ${#PAGES[@]}\n\n"
+
+          if [ $POOR_COUNT -gt 0 ]; then
+            SLACK_TEXT="${SLACK_TEXT}❌ Poor (${POOR_COUNT} pages)\n${POOR_DETAILS}\n"
+          fi
+          if [ $WARN_COUNT -gt 0 ]; then
+            SLACK_TEXT="${SLACK_TEXT}⚠️ Needs Improvement (${WARN_COUNT} pages)\n${WARN_DETAILS}\n"
+          fi
+          if [ $GOOD_COUNT -gt 0 ]; then
+            GOOD_NAMES=$(echo "$GOOD_NAMES" | sed 's/, $//')
+            SLACK_TEXT="${SLACK_TEXT}✅ Good (${GOOD_COUNT} pages)\n• ${GOOD_NAMES}\n\n"
+          fi
+
+          if [ $POOR_COUNT -gt 0 ]; then
+            SLACK_TEXT="${SLACK_TEXT}*Action:* SEO agent notified via Paperclip to investigate poor pages."
+          else
+            SLACK_TEXT="${SLACK_TEXT}*Action:* All pages within acceptable thresholds. No action required."
+          fi
+
+          # Post to Slack
+          curl -s -X POST "$SLACK_WEBHOOK" \
+            -H 'Content-Type: application/json' \
+            -d "{\"text\": \"$(echo -e "$SLACK_TEXT" | sed 's/"/\\"/g' | tr '\n' '\n')\"}" || true
+
+          # If any page is Poor, create Paperclip issue + wake agent
+          if [ $POOR_COUNT -gt 0 ]; then
+            ISSUE_TITLE="[SEO] Core Web Vitals Issues — ${POOR_COUNT} pages failing — ${TODAY}"
+            ISSUE_DESC="## Core Web Vitals Alert\n\nThe following pages are failing Core Web Vitals thresholds (Mobile strategy):\n\n${POOR_DETAILS}\n\n### Investigation Steps\n\n1. Check Next.js image optimization — ensure all images use next/image with proper sizing\n2. Review lazy loading — above-the-fold content must not be lazy loaded\n3. Audit unused JavaScript — run bundle analyzer and remove or defer unused chunks\n4. Check for layout shift causes — ensure images/ads/embeds have explicit dimensions\n5. Review TBT — look for long tasks in main thread, consider web workers\n\n### Thresholds\n- LCP: > 2500ms = Poor (target < 2500ms)\n- CLS: > 0.1 = Poor (target < 0.1)\n- TBT: > 300ms = Poor proxy for INP (target < 300ms)"
+
+            # Dedup check
+            EXISTING=$(curl -s \
+              -H "Authorization: Bearer ${PAPERCLIP_API_KEY}" \
+              "${PAPERCLIP_API_URL}/api/companies/${COMPANY_ID}/issues?search=$(python3 -c "import urllib.parse; print(urllib.parse.quote('${ISSUE_TITLE}', safe=''))")" \
+              | jq -r '.[] | select(.title == "'"${ISSUE_TITLE}"'") | .id' 2>/dev/null | head -1)
+
+            if [ -z "$EXISTING" ]; then
+              curl -s -X POST \
+                -H "Authorization: Bearer ${PAPERCLIP_API_KEY}" \
+                -H "Content-Type: application/json" \
+                "${PAPERCLIP_API_URL}/api/companies/${COMPANY_ID}/issues" \
+                -d "{
+                  \"title\": \"${ISSUE_TITLE}\",
+                  \"priority\": \"high\",
+                  \"description\": \"$(echo -e "$ISSUE_DESC" | sed 's/"/\\"/g')\"
+                }" || true
+
+              # Wake agent
+              curl -s -X POST \
+                -H "Authorization: Bearer ${PAPERCLIP_API_KEY}" \
+                -H "Content-Type: application/json" \
+                "${PAPERCLIP_API_URL}/api/agents/${AGENT_ID}/wakeup" \
+                -d "{\"reason\": \"Core Web Vitals issues detected on ${POOR_COUNT} pages. Check Paperclip for details.\"}" || true
+            else
+              echo "Paperclip issue already exists for today: $EXISTING"
+            fi
+          fi
+
+          echo "CWV check complete. Poor: $POOR_COUNT, Warning: $WARN_COUNT, Good: $GOOD_COUNT"
