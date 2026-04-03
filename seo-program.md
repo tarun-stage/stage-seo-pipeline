@@ -55,6 +55,17 @@
 
 ### Experiments
 
+## Run: 2026-04-03 — Weekly Keywords — Keyword Competitor Analyst
+**Hypothesis:** Adding 35 transactional + navigational keywords from GSC rising/new data (7015 tracked, 1066 rising, 2015 new) will improve click-through for fast-rising content queries.
+**Action:** PR #1262 (https://github.com/vatsanatech/stage-webapp/pull/1262) — updated `src/config/seo-keywords.ts` only
+- Added 35 keywords: 14 Haryanvi, 6 Rajasthani, 4 Bhojpuri, 5 Gujarati + 6 long-tail variants
+- Top transactional additions: naate movie dailymotion (+522%), nate web series full episode (+871%), bittu web series online (+327%), nate movie stage (+240%)
+- Gujarati expanded significantly: naat gujarati movie, nate movie gujarati, gujarati movie download (5 new)
+- Skipped: 7 adult/vulgar keywords, 2 competitor brand keywords (Ullu), piracy domains
+**Result:** PR raised, pending merge.
+**Keep / Discard:** Keep — transactional keyword expansion directly tied to rising GSC data.
+**Confidence delta:** Gujarati keyword additions → viable despite lower volume (high conversion per seo-program rules)
+
 ## Run: 2026-04-03 — GEO Check — Technical SEO Auditor
 **Hypothesis:** Adding missing AI bot entries to robots.txt and expanding llms.txt with dialect URLs + "For AI Assistants" section will improve AI search engine discoverability and citation rates.
 **Action:** PR #1261 (https://github.com/vatsanatech/stage-webapp/pull/1261)
@@ -108,6 +119,8 @@
 - Never add keywords that were explicitly removed in a previous PR (check git log)
 - Gujarati keywords have lower GSC volume but higher conversion — don't ignore
 - Keyword cannibalization between `/movies` and `/hi/haryanvi/movies` is a known issue — check before adding
+- Adult/vulgar keywords consistently appear in GSC rising data — always skip regardless of click volume
+- Multi-dialect rising keywords (naate/nate/naat variants) appear across all 4 dialects — add dialect-tagged variant to each relevant dialect section
 
 ### robots.txt Rules
 - Never block PerplexityBot, GPTBot, ChatGPT-User, ClaudeBot, anthropic-ai, Google-Extended, OAI-SearchBot
@@ -158,4 +171,4 @@ After every run, update the relevant sections:
 
 ---
 
-*Last updated: 2026-04-03 — GEO Check run by Technical SEO Auditor*
+*Last updated: 2026-04-03 — Weekly Keywords run by Keyword Competitor Analyst*
