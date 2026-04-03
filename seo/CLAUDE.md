@@ -1,115 +1,139 @@
 # SEO Pipeline — CLAUDE.md
+# SEO CEO · Stage.in SEO Orchestrator
 
-This directory contains the SEO automation pipeline for stage.in.
+## About Stage.in
 
-## About This Project
+STAGE is India's largest regional OTT platform serving Haryanvi, Rajasthani, Bhojpuri, and Gujarati audiences. SEO drives organic discovery of 2000+ movies and web series.
 
-STAGE is a regional OTT platform (Haryanvi, Rajasthani, Bhojpuri). SEO pipeline ensures stage.in ranks well for regional content keywords.
+## Multi-Agent Architecture
 
-## GSC MCP Server — Available Tools
+This pipeline runs 12 specialized agents in Paperclip. Each agent runs on heartbeat (no GitHub Actions required).
 
-The Google Search Console MCP server is available for direct use in this agent environment.
+```
+                         ┌─────────────────┐
+                         │       CEO       │ ← orchestrates everything
+                         └────────┬────────┘
+                                  │ creates issues
+              ┌───────────────────┼───────────────────┐
+              ▼                   ▼                   ▼
+    ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐
+    │ DETECT AGENTS   │  │ FIX AGENTS      │  │ TRACK AGENTS    │
+    ├─────────────────┤  ├─────────────────┤  ├─────────────────┤
+    │ Technical       │  │ AutoFix Deploy  │  │ SEO Reporting   │
+    │  SEO Auditor    │  │  Engineer       │  │  Compiler       │
+    │                 │  │                 │  │                 │
+    │ Schema          │  │ Editorial       │  │ SEO Workflow    │
+    │  Optimizer      │  │  Content Writer │  │  Researcher     │
+    │                 │  └─────────────────┘  └─────────────────┘
+    │ Page Speed      │
+    │  Optimizer      │
+    │                 │
+    │ Indexation      │
+    │  Crawl Manager  │
+    │                 │
+    │ Keyword         │
+    │  Competitor     │
+    │  Analyst        │
+    │                 │
+    │ Entity SEO      │
+    │  Manager        │
+    │                 │
+    │ Content         │
+    │  Freshness      │
+    │  Analyst        │
+    └─────────────────┘
+```
 
-To use it, run:
+## Agent Instruction Files
+
+Each agent reads its own CLAUDE.md from this repo:
+
+| Agent | Instructions File |
+|-------|------------------|
+| CEO | `seo/agents/ceo/CLAUDE.md` |
+| Technical SEO Auditor | `seo/agents/technical-auditor/CLAUDE.md` |
+| Content Schema Optimizer | `seo/agents/schema-optimizer/CLAUDE.md` |
+| Page Speed Optimizer | `seo/agents/page-speed/CLAUDE.md` |
+| Indexation Crawl Manager | `seo/agents/indexation/CLAUDE.md` |
+| AutoFix Deploy Engineer | `seo/agents/autofix/CLAUDE.md` |
+| Keyword Competitor Analyst | `seo/agents/keyword-analyst/CLAUDE.md` |
+| Entity SEO Manager | `seo/agents/entity-seo/CLAUDE.md` |
+| Content Freshness Analyst | `seo/agents/content-freshness/CLAUDE.md` |
+| SEO Reporting Compiler | `seo/agents/reporting/CLAUDE.md` |
+| Editorial Content Writer | `seo/agents/content-writer/CLAUDE.md` |
+| SEO Workflow Researcher | `seo/agents/seo-researcher/CLAUDE.md` |
+| ASO Specialist | `aso/CLAUDE.md` |
+
+## GSC MCP Server
+
+The Google Search Console MCP server is available in this agent environment.
+
 ```bash
 npx -y gsc-mcp-server
+# or check: claude mcp list
 ```
 
-Or it may already be registered. Check with:
-```bash
-claude mcp list
-```
+**20 tools available:** site_snapshot, quick_wins, content_gaps, traffic_drops, ctr_opportunities, cannibalisation_check, content_decay, url_inspection, topic_clusters, ctr_vs_benchmarks, advanced_search_analytics, check_alerts, verify_claim, content_recommendations, generate_report, multi_site_dashboard, submit_url, submit_batch, submit_sitemap, list_sitemaps
 
-**20 tools available:**
+## Heartbeat Schedule (Recommended)
 
-### Analysis
-- `site_snapshot` — overall performance vs previous period
-- `quick_wins` — keywords at positions 4-15 with high impressions
-- `content_gaps` — topics with impressions but ranking beyond position 20
-- `traffic_drops` — pages that lost traffic with diagnosis
-- `ctr_opportunities` — pages with CTR below benchmark for position
-- `cannibalisation_check` — keywords where multiple pages compete
-- `content_decay` — pages with 3 consecutive months of traffic decline
-- `url_inspection` — indexing status, crawl info, canonical issues
-- `topic_clusters` — performance of all pages under a URL path
-- `ctr_vs_benchmarks` — actual CTR vs industry averages by position
-- `advanced_search_analytics` — custom queries with flexible dimensions
+| Agent | Frequency | Day/Time |
+|-------|-----------|----------|
+| CEO | Every 6 hours | Always |
+| Technical SEO Auditor | Daily | 10 AM IST |
+| Schema Optimizer | Weekly | Mon |
+| Page Speed Optimizer | Weekly | Mon |
+| Indexation Crawl Manager | Daily | 11 AM IST |
+| AutoFix Deploy Engineer | Every 6 hours | Always |
+| Keyword Competitor Analyst | Weekly | Mon |
+| Entity SEO Manager | Weekly | Wed |
+| Content Freshness Analyst | Weekly | Tue |
+| SEO Reporting Compiler | Weekly | Mon 8 AM IST |
+| Editorial Content Writer | Daily | 9 AM IST |
+| SEO Workflow Researcher | Weekly | Fri |
 
-### Monitoring
-- `check_alerts` — position drops, CTR collapses, pages disappeared
-- `verify_claim` — re-queries API to confirm numbers before presenting
+## Issue Routing Convention
 
-### Reporting
-- `content_recommendations` — cross-references quick wins, gaps, cannibalisation
-- `generate_report` — full markdown performance report
-- `multi_site_dashboard` — health check across all properties
+All inter-agent communication uses Paperclip issues with prefix routing:
 
-### Indexing API
-- `submit_url` — send URL to Google's Indexing API
-- `submit_batch` — submit up to 200 URLs at once
-- `submit_sitemap` — notify Google of sitemap updates
-- `list_sitemaps` — see all sitemaps with error counts
+| Prefix | Assigned To |
+|--------|-------------|
+| `[CEO]` | CEO agent |
+| `[AutoFix]` | AutoFix Deploy Engineer |
+| `[Editorial]` | Editorial Content Writer |
+| `[Schema]` | Content Schema Optimizer |
+| `[Technical]` | Technical SEO Auditor |
+| `[Indexation]` | Indexation Crawl Manager |
 
-## Automated Workflows (GitHub Actions → Paperclip Issues)
+## Projects in Paperclip
 
-These run on schedule and assign tasks to this agent:
+| Project | Purpose |
+|---------|---------|
+| Technical SEO Audit Pipeline | Crawl errors, redirects, robots, indexation |
+| Keyword & Competitor Intelligence | Rankings, gaps, competitor analysis |
+| Content & Schema Optimization | JSON-LD schemas, dialect pages, blog content |
+| Auto-Fix & Deployment Pipeline | PRs, code fixes, deployments |
+| Stage Webapp SEO Fixes | Tracked fixes on vatsanatech/stage-webapp |
 
-| Workflow | Schedule | What it does |
-|----------|----------|--------------|
-| `seo-site-audit.yml` | Daily | Full site audit, crawl issues |
-| `seo-weekly-keyword-analysis.yml` | Weekly Mon | Keyword ranking analysis |
-| `seo-content-keywords-refresh.yml` | Weekly | Content + keyword refresh |
-| `seo-pipeline-ott-improvements.yml` | Weekly | OTT-specific improvements |
-| `seo-traffic-drop-diagnosis.yml` | Weekly Mon 8AM IST | Traffic drops with WHY diagnosis (ranking/CTR/demand) |
-| `seo-content-decay.yml` | Monthly 1st | Pages with 3-month consecutive decline |
-| `seo-cannibalisation-check.yml` | Weekly Wed | Pages competing for same keywords |
-| `seo-ctr-benchmarks.yml` | Weekly Fri | CTR vs industry benchmarks by position |
-| `seo-url-indexing.yml` | On demand | Submit URLs to Google Indexing API |
-| `seo-sitemap-resubmit.yml` | On sitemap change | Notify Google of sitemap updates |
+## Environment Variables (All Agents)
 
-## When You Get a Task
-
-### Traffic Drop Diagnosis Task
-- Review the diagnosis (Ranking Loss / CTR Collapse / Demand Decline)
-- **Ranking Loss** → improve content quality, add internal links, check backlinks
-- **CTR Collapse** → rewrite title tag and meta description for that page
-- **Demand Decline** → update content angle or pivot to related topic with more demand
-
-### Content Decay Task
-- Pages are dying slowly — need content refresh
-- Update with new information, better keywords, improved structure
-- Consider consolidating with similar pages
-
-### Cannibalisation Task
-- Two pages competing for same keyword
-- Either: merge them into one stronger page, or differentiate their keyword targets
-- Use 301 redirect from weaker to stronger if merging
-
-### CTR Benchmark Task
-- Page has good ranking but low click rate
-- Fix: rewrite title to be more compelling, update meta description
-- Add numbers, questions, or power words to title
-
-### URL Indexing Task
-- Submit fixed/updated URLs immediately after changes
-- Use `submit_url` MCP tool or trigger `seo-url-indexing.yml` workflow
+- `GITHUB_TOKEN` — GitHub API + git push
+- `SLACK_WEBHOOK_URL` — seo-autopilot Slack channel
+- `GSC_SERVICE_ACCOUNT_KEY` — base64 GSC service account JSON
+- `GSC_SITE_URL` — `sc-domain:stage.in`
+- `PAGESPEED_API_KEY` — Google PageSpeed Insights API
+- `BRAVE_SEARCH_API_KEY` — Brave Search API (for research)
+- `GOOGLE_KG_API_KEY` — Knowledge Graph Search API
+- `PAPERCLIP_API_BASE` — injected automatically at runtime
+- `PAPERCLIP_API_KEY` — injected automatically at runtime
 
 ## Git Workflow
 
-Repo is at `/paperclip/stage-seo-pipeline`.
+Repo at `/paperclip/stage-seo-pipeline`. Webapp at `/paperclip/stage-webapp`.
+
+Never push directly to main. Feature branches: `feature/seo-<topic>-YYYY-MM-DD`
 
 ```bash
 cd /paperclip/stage-seo-pipeline
-git status
-git log --oneline -5
+git status && git log --oneline -5
 ```
-
-**Never push to main directly.** Use feature branches: `feature/seo-update-YYYY-MM-DD`
-
-## Environment Variables
-
-- `GITHUB_TOKEN` — GitHub API access
-- `SLACK_WEBHOOK_URL` — seo-autopilot channel
-- `GSC_SERVICE_ACCOUNT_KEY` — Google Search Console service account (base64)
-- `GSC_SITE_URL` — e.g. `sc-domain:stage.in`
-- `PAPERCLIP_API_BASE` — Paperclip API endpoint
