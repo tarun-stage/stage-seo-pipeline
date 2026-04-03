@@ -21,16 +21,23 @@ jobs:
           STALE_PAGES=""
           STALE_COUNT=0
 
-          # Check key pages for dateModified in JSON-LD or meta tags
+          # Fetch active dialects dynamically from Stage API
+          DIALECT_PAGES=$(curl -s 'https://stageapi.stage.in/v23/settings/getDialects?platform=web&lang=en' | \
+            node -e "
+              const d = JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));
+              const pages = d.data.dialectListing
+                .filter(x => x.status === 'active')
+                .map(x => 'https://stage.in/hi/' + x.dialectEn.toLowerCase() + '/');
+              console.log(pages.join(' '));
+            " 2>/dev/null || echo "")
+
+          # Core pages + dynamic dialect pages
           PAGES=(
-            "https://stage.in/hi/haryanvi/"
-            "https://stage.in/hi/rajasthani/"
-            "https://stage.in/hi/bhojpuri/"
-            "https://stage.in/hi/gujarati/"
             "https://stage.in/movies"
             "https://stage.in/shows"
             "https://stage.in/"
           )
+          for P in $DIALECT_PAGES; do PAGES+=("$P"); done
 
           for PAGE in "${PAGES[@]}"; do
             CONTENT=$(curl -s --max-time 10 "$PAGE" 2>/dev/null | head -c 50000)

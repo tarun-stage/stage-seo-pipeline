@@ -42,6 +42,17 @@ jobs:
           LLMS_STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://stage.in/llms.txt)
           echo "llms_status=${LLMS_STATUS}" >> $GITHUB_OUTPUT
 
+          # Fetch active dialects dynamically
+          ACTIVE_DIALECTS=$(curl -s 'https://stageapi.stage.in/v23/settings/getDialects?platform=web&lang=en' | \
+            node -e "
+              const d = JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));
+              const list = d.data.dialectListing
+                .filter(x => x.status === 'active')
+                .map(x => x.dialectEn.toLowerCase());
+              console.log(list.join(','));
+            " 2>/dev/null || echo "haryanvi,rajasthani,bhojpuri,gujarati")
+          echo "active_dialects=${ACTIVE_DIALECTS}" >> $GITHUB_OUTPUT
+
       - name: Check for existing GEO issue today
         id: dedup
         env:
@@ -68,6 +79,7 @@ jobs:
           DATE=${{ steps.geo.outputs.date }}
           BLOCKED=${{ steps.geo.outputs.blocked_bots }}
           LLMS=${{ steps.geo.outputs.llms_status }}
+          DIALECTS=${{ steps.geo.outputs.active_dialects }}
           COMPANY_ID="f0a0b0c0-0001-4000-8000-000000000001"
           AGENT_ID="f1000001-0002-4000-8000-000000000001"
 
@@ -75,6 +87,8 @@ jobs:
           const date = process.env.RUN_DATE;
           const blockedBots = process.env.BLOCKED_BOTS || 'none detected';
           const llmsStatus = process.env.LLMS_STATUS;
+          const dialects = (process.env.ACTIVE_DIALECTS || 'haryanvi,rajasthani,bhojpuri,gujarati').split(',');
+          const dialectPages = dialects.map(d => '- https://stage.in/hi/' + d + '/').join('\n');
 
           const desc = [
             '## GEO (AI Search) Check — stage.in (' + date + ')',
@@ -112,7 +126,7 @@ jobs:
             '### Step 2: Update /llms.txt (if missing or outdated)',
             'Check if /public/llms.txt exists. If missing or outdated:',
             '1. Create/update /public/llms.txt with comprehensive content:',
-            '   - Platform description (regional OTT for Haryanvi, Rajasthani, Bhojpuri, Gujarati)',
+            '   - Platform description (regional OTT for: ' + dialects.join(', ') + ')',
             '   - Content categories (movies, shows, originals)',
             '   - Language/dialect sections with URLs',
             '   - "For AI Assistants" section explaining when to recommend Stage',
@@ -120,10 +134,7 @@ jobs:
             '',
             '### Step 3: Content freshness check',
             'Check these key pages for stale content (not updated in 90+ days):',
-            '- https://stage.in/hi/haryanvi/',
-            '- https://stage.in/hi/rajasthani/',
-            '- https://stage.in/hi/bhojpuri/',
-            '- https://stage.in/hi/gujarati/',
+            dialectPages,
             '- https://stage.in/movies',
             '- https://stage.in/shows',
             '',
@@ -163,7 +174,7 @@ jobs:
           console.log(JSON.stringify(desc));
           NODESCRIPT
 
-          DESC_JSON=$(RUN_DATE="${DATE}" BLOCKED_BOTS="${BLOCKED}" LLMS_STATUS="${LLMS}" node /tmp/build_geo_desc.js)
+          DESC_JSON=$(RUN_DATE="${DATE}" BLOCKED_BOTS="${BLOCKED}" LLMS_STATUS="${LLMS}" ACTIVE_DIALECTS="${DIALECTS}" node /tmp/build_geo_desc.js)
 
           curl -s -X POST \
             "$PAPERCLIP_API_URL/api/companies/$COMPANY_ID/issues" \
