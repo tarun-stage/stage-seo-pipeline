@@ -27,17 +27,18 @@
 
 | Priority | Task | Status | Last Updated |
 |----------|------|--------|--------------|
-| 1 | Movie/TVSeries schema in SSR HTML on content detail pages | ✅ Fixed PR #1271 (2026-04-06) | 2026-04-07 |
-| 2 | FAQPage schema on all 4 dialect landing pages | ✅ Present in code (DIALECT_FAQ_SCHEMA config) | 2026-04-07 |
+| 1 | Movie/TVSeries schema in SSR HTML on content detail pages | ⚠️ PR #1271 + #1278 open (not merged) | 2026-04-08 |
+| 2 | FAQPage schema on dialect landing pages | ⚠️ Code in main; NOT rendering in live site — possible Vercel ISR cache issue | 2026-04-08 |
 | 3 | robots.txt — verify AI bots are allowed | ✅ All major bots allowed (3 added: ChatGPT-User, OAI-SearchBot, ClaudeBot) | 2026-04-03 |
 | 4 | /llms.txt — comprehensive content | ✅ Updated (808B→1.7KB, For AI Assistants + dialect URLs) | 2026-04-03 |
-| 5 | BreadcrumbList on all pages | ✅ Present on /movies and /shows pages; ⚠️ missing on dialect landing page | 2026-04-07 |
+| 5 | BreadcrumbList on dialect landing pages | ✅ Fixed in PR #1283 (2026-04-08) | 2026-04-08 |
 | 6 | Organization + WebSite schema on homepage | ✅ Present (getHomePageJsonLd + generateWebSiteSchema) | 2026-04-07 |
 | 7 | Content freshness — dateModified in JSON-LD | ⚠️ Unverified | 2026-04-01 |
 | 8 | Hreflang tags (hi ↔ en) | ✅ Present on all dialect pages (3 tags: en-IN, hi-IN, x-default) | 2026-04-07 |
 | 9 | Speakable schema on key landing pages | ✅ Added to MovieSchema + TVSeriesSchema (cssSelector targeting .content-synopsis etc) | 2026-04-07 |
 | 10 | RSC body content visible to AI crawlers | ✅ Verified — /en/haryanvi has 2686 chars readable body text | 2026-04-07 |
 | 11 | Brand safety: saanwari-8295 piracy query association | 🎫 AutoFix ticket SEO-481 created | 2026-04-07 |
+| 12 | Marathi FAQPage schema | ✅ Added in PR #1278 (2026-04-08) | 2026-04-08 |
 
 ---
 
@@ -56,6 +57,23 @@
 ```
 
 ### Experiments
+
+## Run: 2026-04-08 — Schema Audit — Technical SEO Auditor
+**Hypothesis:** Dialect landing pages are missing BreadcrumbList schema; adding it will improve navigation rich results and reinforce page hierarchy signals for Googlebot.
+**Action:** PR #1283 (https://github.com/vatsanatech/stage-webapp/pull/1283)
+- Added `generateBreadcrumbSchema` import to `src/app/[lang]/[dialect]/page.tsx`
+- Generates breadcrumb: Home → [Dialect Name] (e.g., Home → Haryanvi)
+- Fetches `availableDialects` to get localized dialect label for breadcrumb
+**Audit Findings (2026-04-08):**
+- `/en/haryanvi` (live): Organization + WebSite only — FAQPage code present in main but NOT rendering in live HTML
+- `/en/haryanvi/movies` (live): BreadcrumbList + ItemList ✅
+- `/en/haryanvi/shows` (live): BreadcrumbList + ItemList ✅
+- Content detail pages: Movie/TVSeries still uses `<Script>` (PR #1271 + #1278 pending merge)
+- PR #1278 also open: same `<Script>`→`<script>` fix + Marathi FAQPage config
+- NOTE: PR #1271 is BEHIND main (branch: fix/seo-audit-2026-04-06 → needs rebase)
+**Result:** PR #1283 raised for BreadcrumbList fix. FAQPage non-rendering is unresolved — needs investigation.
+**Keep / Discard:** Keep BreadcrumbList fix. FAQPage investigation pending.
+**Confidence delta:** BreadcrumbList on listing pages → confirmed pattern, +0.8 confidence
 
 ## Run: 2026-04-07 — Full Site Audit — Technical SEO Auditor
 **Hypothesis:** Movie/TVSeries JSON-LD schema was missing from SSR HTML causing zero structured data visibility for crawlers; fixing to native `<script>` tag will make Google/AI crawlers see content schema on all movie+show pages.
@@ -120,6 +138,7 @@
 > These approaches have failed or caused problems. Avoid them.
 
 - **next/script `<Script>` for JSON-LD** (2026-04-07): Using Next.js `Script` component for JSON-LD injects it after hydration (afterInteractive), making it invisible to crawlers. Always use native `<script>` tag for JSON-LD.
+- **Assuming code = live** (2026-04-08): FAQPage code was in main but not rendering in live site. Always verify schemas in actual HTTP response, not just codebase. Check both RSC payload and static HTML for schema presence.
 
 ---
 
@@ -133,6 +152,7 @@
 - Add JSON-LD in `page.tsx` for page-specific schemas (VideoObject, FAQPage)
 - Always include `dateModified` in VideoObject schema (required for freshness signals)
 - `potentialAction` with `WatchAction` is required in VideoObject for Google Watch button eligibility
+- **Always verify schemas in live HTTP response** — code presence ≠ live rendering (ISR cache/deploy issues can hide schema)
 
 ### Keyword Rules
 - Transactional keywords (watch, stream, free, online) have highest SEO ROI — prioritize
@@ -167,9 +187,9 @@
 | AI citation rate (Perplexity) | unknown | 2026-04-01 | — |
 | AI citation rate (ChatGPT) | unknown | 2026-04-01 | — |
 | Google organic sessions | unknown | 2026-04-01 | — |
-| Pages with Movie/TVSeries schema (SSR) | 0 → all content pages (PR #1271 pending) | 2026-04-07 | ↑ Fix deployed in PR #1271 |
-| Pages with FAQPage schema | 4 dialect landing pages | 2026-04-07 | ✅ Already deployed |
-| Pages with BreadcrumbList | /movies + /shows pages | 2026-04-07 | ✅ Present; missing on dialect homepage |
+| Pages with Movie/TVSeries schema (SSR) | 0 → pending PRs #1271 + #1278 (not merged) | 2026-04-08 | ⚠️ PRs open |
+| Pages with FAQPage schema | 4 dialect landing pages (code present, live rendering unverified) | 2026-04-08 | ⚠️ Not visible in live HTTP response |
+| Pages with BreadcrumbList | /movies + /shows + dialect homepage (PR #1283) | 2026-04-08 | ↑ Dialect homepage added |
 | /llms.txt word count | 808 bytes | 2026-04-03 | ↑ Updated to ~1.7KB |
 | robots.txt — AI bots blocked | 0 (ChatGPT-User, OAI-SearchBot, ClaudeBot added explicitly) | 2026-04-03 | ✅ Fixed |
 
@@ -191,4 +211,4 @@ After every run, update the relevant sections:
 
 ---
 
-*Last updated: 2026-04-07 — Full Site Audit run by Technical SEO Auditor*
+*Last updated: 2026-04-08 — Schema Audit run by Technical SEO Auditor*
