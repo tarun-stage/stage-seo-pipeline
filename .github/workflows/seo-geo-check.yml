@@ -61,7 +61,7 @@ jobs:
         run: |
           DATE=${{ steps.geo.outputs.date }}
           EXISTING=$(curl -s \
-            "$PAPERCLIP_API_URL/api/companies/f0a0b0c0-0001-4000-8000-000000000001/issues?status=todo&status=in_progress" \
+            "$PAPERCLIP_API_URL/api/companies/03319c0f-9679-474a-90e2-7004053fdef2/issues?status=todo&status=in_progress" \
             -H "Authorization: Bearer $PAPERCLIP_API_KEY" | \
             node -e "
               const d = JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));
@@ -80,8 +80,8 @@ jobs:
           BLOCKED=${{ steps.geo.outputs.blocked_bots }}
           LLMS=${{ steps.geo.outputs.llms_status }}
           DIALECTS=${{ steps.geo.outputs.active_dialects }}
-          COMPANY_ID="f0a0b0c0-0001-4000-8000-000000000001"
-          AGENT_ID="f1000001-0002-4000-8000-000000000001"
+          COMPANY_ID="03319c0f-9679-474a-90e2-7004053fdef2"
+          AGENT_ID="b4802fc6-f46a-443f-a5a9-86028686b5fc"
 
           cat > /tmp/build_geo_desc.js << 'NODESCRIPT'
           const date = process.env.RUN_DATE;

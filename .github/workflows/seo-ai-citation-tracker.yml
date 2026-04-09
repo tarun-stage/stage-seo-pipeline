@@ -16,9 +16,10 @@ jobs:
           GOOGLE_SEARCH_CX: ${{ secrets.GOOGLE_SEARCH_CX }}
           PERPLEXITY_API_KEY: ${{ secrets.PERPLEXITY_API_KEY }}
           PAPERCLIP_API_KEY: ${{ secrets.PAPERCLIP_API_KEY }}
+          PAPERCLIP_API_URL: ${{ secrets.PAPERCLIP_API_URL }}
           SLACK_WEBHOOK: '${{ secrets.SLACK_WEBHOOK_URL }}'
-          SEO_COMPANY_ID: 'f0a0b0c0-0001-4000-8000-000000000001'
-          SEO_AGENT_ID: 'f1000001-0002-4000-8000-000000000001'
+          SEO_COMPANY_ID: '03319c0f-9679-474a-90e2-7004053fdef2'
+          SEO_AGENT_ID: 'b4802fc6-f46a-443f-a5a9-86028686b5fc'
         run: |
           node << 'EOF'
           const https = require('https');
@@ -45,6 +46,7 @@ jobs:
           const GOOGLE_API_KEY = process.env.GOOGLE_SEARCH_API_KEY;
           const GOOGLE_CX = process.env.GOOGLE_SEARCH_CX;
           const PERPLEXITY_API_KEY = process.env.PERPLEXITY_API_KEY;
+          const PAPERCLIP_API_URL = process.env.PAPERCLIP_API_URL || 'http://164.52.223.6:3100';
 
           function mentionsStage(text) {
             const lower = (text || '').toLowerCase();
@@ -296,13 +298,13 @@ _Automated by SEO AI Citation Tracker · Every Friday_`;
               title: `[GEO] AI Citation Rate: ${citedCount}/${total} (${rate}%) — below target — ${today}`,
               description,
               priority,
-              company_id: SEO_COMPANY_ID,
-              agent_id: SEO_AGENT_ID,
+              status: 'todo',
+              assigneeAgentId: SEO_AGENT_ID,
             };
 
             try {
               const res = await httpsPost(
-                'https://api.paperclip.com/v1/issues',
+                `${PAPERCLIP_API_URL}/api/companies/${SEO_COMPANY_ID}/issues`,
                 issuePayload,
                 {
                   'Authorization': `Bearer ${PAPERCLIP_API_KEY}`,
