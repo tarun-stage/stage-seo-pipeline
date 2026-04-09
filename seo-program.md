@@ -93,6 +93,18 @@
 - RSC body content IS readable in initial HTML (2686 chars on /en/haryanvi) — AI crawlers CAN read content listings
 - BreadcrumbList missing on dialect HOMEPAGE (present on /movies and /shows sub-pages)
 
+## Run: 2026-04-09 — Weekly Keywords — Keyword Competitor Analyst
+**Hypothesis:** Adding 33 transactional + navigational keywords from GSC rising/new data (7086 tracked, 956 rising, 2086 new) will improve click-through for fast-rising Bhojpuri content queries and consolidate Haryanvi saanwari/kachi umar series traction.
+**Action:** PR #1304 (https://github.com/vatsanatech/stage-webapp/pull/1304) — updated `src/config/seo-keywords.ts` only
+- Added 33 keywords: 10 Haryanvi, 14 Bhojpuri, 2 Rajasthani + long-tail variants
+- Top transactional additions: saanwari web series (+112%, 189 clicks), jholachhap movie bhojpuri (+21.6%, 152 clicks), ladli chhathi mai ke bhojpuri film (+883%), naat 2026 movie (+500%), naat bhojpuri movie watch online (+1700%)
+- Bhojpuri dialect showed strongest growth this week: 5 new keywords crossing 30+ clicks
+- Haryanvi: saanwari web series emerging as major series (189 clicks), kachi umar new series breakout (+960%)
+- Skipped: 12 adult/vulgar keywords, 2 piracy domains (filmywap.in/filmywap movie), 1 competitor brand (ullu)
+**Result:** PR raised, pending merge.
+**Keep / Discard:** Keep — transactional keyword expansion directly tied to rising GSC data.
+**Confidence delta:** Bhojpuri multi-variant keywords (naat/nate/naate + bhojpuri + action) → confirmed pattern, add all variants (+0.2 confidence)
+
 ## Run: 2026-04-03 — Weekly Keywords — Keyword Competitor Analyst
 **Hypothesis:** Adding 35 transactional + navigational keywords from GSC rising/new data (7015 tracked, 1066 rising, 2015 new) will improve click-through for fast-rising content queries.
 **Action:** PR #1262 (https://github.com/vatsanatech/stage-webapp/pull/1262) — updated `src/config/seo-keywords.ts` only
@@ -211,4 +223,4 @@ After every run, update the relevant sections:
 
 ---
 
-*Last updated: 2026-04-08 — Schema Audit run by Technical SEO Auditor*
+*Last updated: 2026-04-09 — Weekly Keywords run by Keyword Competitor Analyst*
