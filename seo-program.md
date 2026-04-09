@@ -58,6 +58,18 @@
 
 ### Experiments
 
+## Run: 2026-04-09 — Weekly Keywords — Keyword Competitor Analyst
+**Hypothesis:** Adding 32 transactional + navigational keywords from GSC rising/new data (7086 tracked, 956 rising, 2086 new) will improve click-through for fast-rising content queries.
+**Action:** PR #1304 (https://github.com/vatsanatech/stage-webapp/pull/1304) — updated `src/config/seo-keywords.ts` only
+- Added 32 keywords: 17 Haryanvi (movies + shows + brand), 2 Rajasthani, 13 Bhojpuri, 0 Gujarati
+- Top transactional additions: `naat bhojpuri movie watch online` (+1700%), `kachi umar series` (+960%), `naate movie bhojpuri watch online` (51 clicks), `saanwari web series` (189 clicks, +112%), `naate movie 2025` (109 clicks)
+- Bhojpuri dialect grew most this week: 13 additions across naate/naat/nate variants, jholachhap, ladli chhathi mai
+- Gujarati: 0 additions — all rising keywords were adult content (मारवाड़ी/गुजराती सेक्सी variants), correctly skipped
+- Skipped competitor brand: `ullu web series online watch`
+**Result:** PR raised and merged (#1304).
+**Keep / Discard:** Keep — transactional keyword expansion directly tied to rising GSC data.
+**Confidence delta:** Bhojpuri movie variants (naate/naat/nate) consistently generate high click volume — prioritize these each run. +0.2 confidence
+
 ## Run: 2026-04-08 — Schema Audit — Technical SEO Auditor
 **Hypothesis:** Dialect landing pages are missing BreadcrumbList schema; adding it will improve navigation rich results and reinforce page hierarchy signals for Googlebot.
 **Action:** PR #1283 (https://github.com/vatsanatech/stage-webapp/pull/1283)
