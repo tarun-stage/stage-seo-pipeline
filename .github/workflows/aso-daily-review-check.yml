@@ -12,6 +12,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Restore weekly avg history cache
+      - name: Restore review history cache
+        uses: actions/cache@v4
+        with:
+          path: .aso-review-history.json
+          key: aso-review-history-${{ runner.os }}
+          restore-keys: aso-review-history-
+
       - name: Write Play Store key
         run: echo "${{ secrets.PLAY_STORE_JSON_KEY_B64 }}" | base64 -d > /tmp/play-store-key.json
 
@@ -30,6 +38,17 @@ jobs:
           const https = require('https');
           const http = require('http');
 
+          const HISTORY_FILE = '.aso-review-history.json';
+
+          function loadHistory() {
+            try { return JSON.parse(fs.readFileSync(HISTORY_FILE, 'utf8')); }
+            catch { return {}; }
+          }
+
+          function saveHistory(data) {
+            fs.writeFileSync(HISTORY_FILE, JSON.stringify(data, null, 2));
+          }
+
           async function main() {
             const credentials = JSON.parse(fs.readFileSync('/tmp/play-store-key.json', 'utf8'));
             const auth = new google.auth.GoogleAuth({
@@ -46,7 +65,6 @@ jobs:
             const now = Date.now();
             const yesterday = now - 24 * 60 * 60 * 1000;
             const sevenDaysAgo = now - 7 * 24 * 60 * 60 * 1000;
-            const fourteenDaysAgo = now - 14 * 24 * 60 * 60 * 1000;
 
             // Bad reviews last 24h without a developer reply
             const badReviews = reviews.filter(r => {
@@ -57,26 +75,40 @@ jobs:
               return comment.starRating <= 3 && ts >= yesterday && !hasReply;
             });
 
-            // Rating trend: this week vs last week
-            const ratingInWindow = (from, to) => {
-              const subset = reviews.filter(r => {
-                const comment = r.comments && r.comments[0] && r.comments[0].userComment;
-                if (!comment) return false;
-                const ts = parseInt((comment.lastModified && comment.lastModified.seconds) || '0') * 1000;
-                return ts >= from && ts < to;
-              });
-              if (!subset.length) return null;
-              const sum = subset.reduce((s, r) => s + (r.comments[0].userComment.starRating || 0), 0);
-              return (sum / subset.length).toFixed(2);
-            };
+            // This week avg from API
+            const thisWeekReviews = reviews.filter(r => {
+              const comment = r.comments && r.comments[0] && r.comments[0].userComment;
+              if (!comment) return false;
+              const ts = parseInt((comment.lastModified && comment.lastModified.seconds) || '0') * 1000;
+              return ts >= sevenDaysAgo && ts < now;
+            });
 
-            const thisWeekAvg = ratingInWindow(sevenDaysAgo, now);
-            const lastWeekAvg = ratingInWindow(fourteenDaysAgo, sevenDaysAgo);
-            const drop = (thisWeekAvg && lastWeekAvg) ? (parseFloat(lastWeekAvg) - parseFloat(thisWeekAvg)).toFixed(2) : null;
+            const thisWeekAvg = thisWeekReviews.length
+              ? (thisWeekReviews.reduce((s, r) => s + r.comments[0].userComment.starRating, 0) / thisWeekReviews.length).toFixed(2)
+              : null;
+
+            // Load persisted history for last week avg
+            const history = loadHistory();
+            const todayKey = new Date().toISOString().split('T')[0];
+            const lastWeekKey = new Date(now - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+            const lastWeekAvg = history[lastWeekKey] || null;
+
+            // Save today's avg to history
+            if (thisWeekAvg) {
+              history[todayKey] = thisWeekAvg;
+              // Keep only last 30 days
+              const cutoff = new Date(now - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+              Object.keys(history).forEach(k => { if (k < cutoff) delete history[k]; });
+              saveHistory(history);
+            }
+
+            const drop = (thisWeekAvg && lastWeekAvg)
+              ? (parseFloat(lastWeekAvg) - parseFloat(thisWeekAvg)).toFixed(2)
+              : null;
             const hasDrop = drop !== null && parseFloat(drop) > 0.1;
 
             const trendLine = !thisWeekAvg ? 'Insufficient data'
-              : !lastWeekAvg ? `This week: ${thisWeekAvg} ⭐ (no prior week data)`
+              : !lastWeekAvg ? `This week: ${thisWeekAvg} ⭐ (no prior week data yet — will populate from tomorrow)`
               : hasDrop ? `⬇️ DROP ${drop} stars: ${lastWeekAvg} → ${thisWeekAvg}`
               : parseFloat(drop) < -0.1 ? `⬆️ IMPROVED ${Math.abs(drop)} stars: ${lastWeekAvg} → ${thisWeekAvg}`
               : `➡️ Stable: ${thisWeekAvg} ⭐`;
@@ -90,29 +122,28 @@ jobs:
               : `[ASO] Daily Review Check — All clear ✅ ${date}`;
 
             let body = `## ASO Daily Review Report — ${date}\n\n`;
-            body += `### Rating Trend (recent reviews only — NOT overall app rating)\n`;
-            body += `> Note: These averages are from the last 100 reviews fetched via API, filtered by date. Overall app rating (4.5★) is unaffected.\n\n`;
-            body += `- ${trendLine}\n`;
-            body += `- Recent reviews avg: This week **${thisWeekAvg || 'N/A'}★** | Last week **${lastWeekAvg || 'N/A'}★**\n\n`;
+            body += `### Rating Trend\n`;
+            body += `> Note: These averages are from the last 100 reviews fetched via API. Overall app rating (4.5★) is unaffected.\n\n`;
+            body += `- This week avg: **${thisWeekAvg || 'N/A'}★** | Last week avg: **${lastWeekAvg || 'N/A'}★**\n`;
+            body += `- ${trendLine}\n\n`;
 
             body += `### Negative Reviews (last 24h, no reply): ${badReviews.length}\n\n`;
             if (badReviews.length > 0) {
               badReviews.slice(0, 15).forEach(r => {
                 const c = r.comments[0].userComment;
-                const stars = c.starRating;
                 const text = (c.text || '(no text)').slice(0, 200).replace(/\n/g, ' ');
-                body += `**${stars}/5 ⭐** — "${text}"\n\n`;
+                body += `**${c.starRating}/5 ⭐** — "${text}"\n\n`;
               });
               body += `### What to do\n`;
-              body += `1. Run \`node /paperclip/stage-seo-pipeline/aso/scripts/review_responder.js\` to auto-reply Hinglish\n`;
-              body += `2. Note common complaints for metadata/keyword updates\n`;
+              body += `1. Run review_responder.js to auto-reply\n`;
+              body += `2. Note common complaints for metadata updates\n`;
             } else {
               body += `_No new negative reviews in last 24h_ ✅\n\n`;
             }
 
             if (hasDrop) {
               body += `\n### ⚠️ Rating Drop Alert\n`;
-              body += `Rating dropped ${drop} stars compared to last week. Investigate common issues in negative reviews and consider updating store description to address them.\n`;
+              body += `Rating dropped ${drop} stars vs last week.\n`;
             }
 
             body += `\n---\n_Generated by ASO Daily Review Check workflow_`;
@@ -122,117 +153,49 @@ jobs:
             const COMPANY_ID = '03319c0f-9679-474a-90e2-7004053fdef2';
             const CEO_AGENT_ID = 'b4802fc6-f46a-443f-a5a9-86028686b5fc';
 
-            const payload = JSON.stringify({
-              title,
-              description: body,
-              priority,
-              assigneeAgentId: CEO_AGENT_ID,
-            });
-
+            const payload = JSON.stringify({ title, description: body, priority, assigneeAgentId: CEO_AGENT_ID });
             const url = new URL(`${apiBase}/api/companies/${COMPANY_ID}/issues`);
-            const isHttps = url.protocol === 'https:';
-            const client = isHttps ? https : http;
+            const client = url.protocol === 'https:' ? https : http;
 
             await new Promise((resolve, reject) => {
               const req = client.request({
-                hostname: url.hostname,
-                port: url.port || (isHttps ? 443 : 80),
-                path: url.pathname + url.search,
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                  'Authorization': `Bearer ${process.env.PAPERCLIP_API_KEY}`,
-                  'Content-Length': Buffer.byteLength(payload),
-                },
-              }, res => {
-                let data = '';
-                res.on('data', d => data += d);
-                res.on('end', () => {
-                  console.log(`Paperclip issue [${res.statusCode}]:`, data.slice(0, 300));
-                  resolve();
-                });
-              });
-              req.on('error', reject);
-              req.write(payload);
-              req.end();
+                hostname: url.hostname, port: url.port || (url.protocol === 'https:' ? 443 : 80),
+                path: url.pathname, method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${process.env.PAPERCLIP_API_KEY}`, 'Content-Length': Buffer.byteLength(payload) },
+              }, res => { let d=''; res.on('data',c=>d+=c); res.on('end',()=>{ console.log(`Paperclip [${res.statusCode}]:`, d.slice(0,200)); resolve(); }); });
+              req.on('error', reject); req.write(payload); req.end();
             });
 
-            // Wake up CEO agent
-            const wakePayload = JSON.stringify({ reason: `ASO daily review check — ${date}` });
-            const wakeUrl = new URL(`${apiBase}/api/agents/${CEO_AGENT_ID}/wakeup`);
-            await new Promise((resolve) => {
-              const req = (wakeUrl.protocol === 'https:' ? https : http).request({
-                hostname: wakeUrl.hostname,
-                port: wakeUrl.port || (wakeUrl.protocol === 'https:' ? 443 : 80),
-                path: wakeUrl.pathname,
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                  'Authorization': `Bearer ${process.env.PAPERCLIP_API_KEY}`,
-                  'Content-Length': Buffer.byteLength(wakePayload),
-                },
-              }, res => {
-                let data = '';
-                res.on('data', d => data += d);
-                res.on('end', () => { console.log(`Agent wakeup [${res.statusCode}]:`, data.slice(0, 200)); resolve(); });
-              });
-              req.on('error', e => { console.log('Wakeup error (non-fatal):', e.message); resolve(); });
-              req.write(wakePayload);
-              req.end();
-            });
-
-            // Slack notification
-            const reviewLines = badReviews.slice(0, 5).map(r => {
+            // Slack
+            const ratingNote = `_Recent review avg only (last 100 reviews). Overall app rating: 4.5★ (1.78L reviews)_`;
+            const reviewLines = badReviews.slice(0,5).map(r => {
               const c = r.comments[0].userComment;
-              return `  ${'⭐'.repeat(c.starRating)} — "${(c.text || '').slice(0, 100).replace(/\n/g,' ')}"`;
+              return `  ${'⭐'.repeat(c.starRating)} — "${(c.text||'').slice(0,100).replace(/\n/g,' ')}"`;
             }).join('\n');
 
-            const ratingNote = `_Recent review avg only (last 100 reviews). Overall app rating: 4.5★ (1.78L reviews)_`;
-
-            const slackText = hasProblem
-              ? [
-                  `*ASO Daily Review Alert — ${date}* ⚠️`,
-                  `*Package:* in.stage (Google Play)`,
-                  ``,
-                  `*Recent Review Avg (last 7d)*`,
-                  `• This week: ${thisWeekAvg || 'N/A'} ⭐ | Last week: ${lastWeekAvg || 'N/A'} ⭐`,
-                  `• ${trendLine}`,
-                  ratingNote,
-                  ``,
-                  `*Negative Reviews (last 24h, no reply): ${badReviews.length}*`,
-                  reviewLines || '  None',
-                  ``,
-                  `*Action:* CEO agent has been notified via Paperclip to reply to these reviews.`,
-                  `*Triggered by:* GitHub Actions (scheduled)`
-                ].join('\n')
-              : [
-                  `*ASO Daily Review Check — ${date}* ✅`,
-                  `*Package:* in.stage (Google Play)`,
-                  ``,
-                  `*Recent Review Avg (last 7d)*`,
-                  `• This week: ${thisWeekAvg || 'N/A'} ⭐ | Last week: ${lastWeekAvg || 'N/A'} ⭐`,
-                  `• ${trendLine}`,
-                  ratingNote,
-                  ``,
-                  `*Negative Reviews (last 24h):* None — no action needed`,
-                  `*Triggered by:* GitHub Actions (scheduled)`
-                ].join('\n');
+            const slackText = [
+              `*ASO Daily Review Check — ${date}* ${hasProblem ? '⚠️' : '✅'}`,
+              `Package: in.stage (Google Play)`,
+              ``,
+              `*Recent Review Avg (last 7d)*`,
+              `• This week: ${thisWeekAvg || 'N/A'} ⭐ | Last week: ${lastWeekAvg || 'N/A'} ⭐`,
+              `• ${trendLine}`,
+              ratingNote,
+              ``,
+              `*Negative Reviews (last 24h):* ${badReviews.length > 0 ? badReviews.length : 'None — no action needed'}`,
+              reviewLines || '',
+              `Triggered by: GitHub Actions (scheduled)`,
+            ].filter(l => l !== '').join('\n');
 
             const slackPayload = JSON.stringify({ text: slackText });
             const slackUrl = new URL(process.env.SLACK_WEBHOOK_URL);
             await new Promise((resolve) => {
               const req = https.request({
-                hostname: slackUrl.hostname,
-                path: slackUrl.pathname,
-                method: 'POST',
+                hostname: slackUrl.hostname, path: slackUrl.pathname, method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(slackPayload) },
-              }, res => {
-                res.on('data', () => {});
-                res.on('end', () => { console.log(`Slack [${res.statusCode}]`); resolve(); });
-              });
-              req.on('error', e => { console.log('Slack error (non-fatal):', e.message); resolve(); });
-              req.write(slackPayload);
-              req.end();
+              }, res => { res.on('data',()=>{}); res.on('end',()=>{ console.log(`Slack [${res.statusCode}]`); resolve(); }); });
+              req.on('error', e => { console.log('Slack error:', e.message); resolve(); });
+              req.write(slackPayload); req.end();
             });
 
             console.log(`Done — bad reviews: ${badReviews.length}, trend: ${trendLine}`);
@@ -240,3 +203,11 @@ jobs:
 
           main().catch(e => { console.error(e.message); process.exit(1); });
           SCRIPT
+
+      # Save updated history cache
+      - name: Save review history cache
+        uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: .aso-review-history.json
+          key: aso-review-history-${{ runner.os }}
