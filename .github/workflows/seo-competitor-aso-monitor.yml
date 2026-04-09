@@ -117,7 +117,7 @@ jobs:
               const rankings = {};
               for (const app of TARGET_APPS) {
                 const pos = found.indexOf(app.id);
-                rankings[app.id] = pos >= 0 && pos < 10 ? pos + 1 : null;
+                rankings[app.id] = pos >= 0 && pos >= 0 && pos < 30 ? pos + 1 : null;
               }
               return { blocked: false, rankings, rawOrder: found.slice(0, 10) };
             } catch (err) {
@@ -143,7 +143,7 @@ jobs:
             // Simple dedup: we check by searching existing issues
             // Using the Paperclip search endpoint
             try {
-              const searchUrl = `https://api.paperclip.com/v1/companies/${ASO_COMPANY_ID}/issues?search=${encodeURIComponent(title)}&limit=5`;
+              const searchUrl = `http://164.52.223.6:3100/api/companies/${ASO_COMPANY_ID}/issues?search=${encodeURIComponent(title)}&limit=5`;
               const result = await httpsGet(searchUrl, {
                 'Authorization': `Bearer ${PAPERCLIP_API_KEY}`,
               });
@@ -159,7 +159,7 @@ jobs:
           }
 
           async function createPaperclipIssue(title, description) {
-            const url = `https://api.paperclip.com/v1/companies/${ASO_COMPANY_ID}/agents/${ASO_CEO_AGENT_ID}/issues`;
+            const url = `http://164.52.223.6:3100/api/companies/${ASO_COMPANY_ID}/agents/${ASO_CEO_AGENT_ID}/issues`;
             const body = { title, description };
             const result = await httpsPost(url, body, {
               'Authorization': `Bearer ${PAPERCLIP_API_KEY}`,
@@ -279,7 +279,7 @@ jobs:
                 return `| ${kw} | ${formatRank(r.rankings['in.stage'])} | ${formatRank(r.rankings['com.chaupalapp'])} | ${formatRank(r.rankings['com.mxtech.videoplayer.ad'])} | ${formatRank(r.rankings['com.ullu.android'])} | ${formatRank(r.rankings['com.zeestudios.zee5'])} |`;
               }).join('\n');
 
-              const description = `Stage is ranking ${stageRank ? '#' + stageRank : 'outside top 10'} for "${keyword}" — a keyword it should own.\n\n` +
+              const description = `Stage is ranking ${stageRank ? '#' + stageRank : 'outside top 30'} for "${keyword}" — a keyword it should own.\n\n` +
                 `**Full Ranking Table (${today}):**\n\n` +
                 `| Keyword | Stage | Chaupal | MX Player | Ullu | Zee5 |\n` +
                 `|---------|-------|---------|-----------|------|------|\n` +
