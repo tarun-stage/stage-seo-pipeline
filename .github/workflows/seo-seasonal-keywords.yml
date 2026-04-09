@@ -137,8 +137,8 @@ jobs:
 
           async function checkDuplicatePaperclipIssue(companyId, title, apiKey) {
             try {
-              const searchPath = `/v1/companies/${companyId}/issues?search=${encodeURIComponent(title)}&limit=5`;
-              const result = await httpsGet(`https://api.paperclip.com${searchPath}`, {
+              const searchPath = `/api/companies/${companyId}/issues?search=${encodeURIComponent(title)}&limit=5`;
+              const result = await httpsGet(`http://164.52.223.6:3100${searchPath}`, {
                 'Authorization': `Bearer ${apiKey}`,
               });
               if (result.statusCode === 200) {
@@ -155,7 +155,7 @@ jobs:
           async function createPaperclipIssue(companyId, agentId, title, description, apiKey) {
             const result = await httpsPostWithPath(
               'api.paperclip.com',
-              `/v1/companies/${companyId}/agents/${agentId}/issues`,
+              `/api/companies/${companyId}/agents/${agentId}/issues`,
               { title, description },
               { 'Authorization': `Bearer ${apiKey}` }
             );
@@ -166,7 +166,7 @@ jobs:
             try {
               const result = await httpsPostWithPath(
                 'api.paperclip.com',
-                `/v1/companies/${companyId}/agents/${agentId}/wake`,
+                `/api/companies/${companyId}/agents/${agentId}/wake`,
                 {},
                 { 'Authorization': `Bearer ${apiKey}` }
               );
