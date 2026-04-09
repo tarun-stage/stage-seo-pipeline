@@ -159,8 +159,8 @@ jobs:
           }
 
           async function createPaperclipIssue(title, description) {
-            const url = `http://164.52.223.6:3100/api/companies/${ASO_COMPANY_ID}/agents/${ASO_CEO_AGENT_ID}/issues`;
-            const body = { title, description };
+            const url = `http://164.52.223.6:3100/api/companies/${ASO_COMPANY_ID}/issues`;
+            const body = { title, description, status: 'todo', priority: 'high', assigneeAgentId: ASO_CEO_AGENT_ID };
             const result = await httpsPost(url, body, {
               'Authorization': `Bearer ${PAPERCLIP_API_KEY}`,
             });
