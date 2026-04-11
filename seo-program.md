@@ -58,6 +58,18 @@
 
 ### Experiments
 
+## Run: 2026-04-11 — Weekly Keywords — Keyword Competitor Analyst
+**Hypothesis:** Adding 25 transactional + navigational keywords from GSC rising/new data (7073 tracked, 944 rising, 2073 new) will improve click-through for rising Rajasthani, Bhojpuri, and Gujarati content queries.
+**Action:** PR #1311 (https://github.com/vatsanatech/stage-webapp/pull/1311) — updated `src/config/seo-keywords.ts` only
+- Added 25 keywords: 6 Haryanvi (3 movies + 3 shows), 4 Rajasthani movies, 6 Bhojpuri movies, 1 Bhojpuri brand, 3 Gujarati movies, 1 global BRAND_KEYWORDS, + 4 long-tail variants
+- Top transactional additions: `nate movie rajasthan online` (+148%, 124 clicks), `namak web series` (87 clicks), `naate movie bhojpuri` (+100%, 108 clicks), `nate movie bhojpuri` (+124%, 47 clicks), `naate rajasthani movie ott platform` (new, 29 clicks)
+- Rajasthani dialect gained most new entries this run: 4 new keywords including ott platform variant
+- `stage app login` added to global BRAND_KEYWORDS (navigational, +55%, 84 clicks)
+- Skipped: 12 adult/vulgar keywords across all dialects, filmywap.in (piracy domain), adult-adjacent desi hot series
+**Result:** PR raised (#1311). Slack notification sent to Aditya.
+**Keep / Discard:** Keep — transactional keyword expansion directly tied to rising GSC data.
+**Confidence delta:** Rajasthani ott platform variants → newly confirmed pattern, worth tracking each run (+0.1 confidence)
+
 ## Run: 2026-04-09 — Weekly Keywords — Keyword Competitor Analyst
 **Hypothesis:** Adding 32 transactional + navigational keywords from GSC rising/new data (7086 tracked, 956 rising, 2086 new) will improve click-through for fast-rising content queries.
 **Action:** PR #1304 (https://github.com/vatsanatech/stage-webapp/pull/1304) — updated `src/config/seo-keywords.ts` only
@@ -235,4 +247,4 @@ After every run, update the relevant sections:
 
 ---
 
-*Last updated: 2026-04-09 — Weekly Keywords run by Keyword Competitor Analyst*
+*Last updated: 2026-04-11 — Weekly Keywords run by Keyword Competitor Analyst*
