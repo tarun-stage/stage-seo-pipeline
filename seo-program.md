@@ -27,8 +27,8 @@
 
 | Priority | Task | Status | Last Updated |
 |----------|------|--------|--------------|
-| 1 | Movie/TVSeries schema in SSR HTML on content detail pages | ⚠️ PR #1271 + #1278 open (not merged) | 2026-04-08 |
-| 2 | FAQPage schema on dialect landing pages | ⚠️ Code in main; NOT rendering in live site — possible Vercel ISR cache issue | 2026-04-08 |
+| 1 | Movie/TVSeries schema in SSR HTML on content detail pages | ⚠️ PR #1313 open (fix re-applied 2026-04-13) | 2026-04-13 |
+| 2 | FAQPage schema on dialect landing pages | ✅ Now rendering in live site (ISR cache resolved) | 2026-04-13 |
 | 3 | robots.txt — verify AI bots are allowed | ✅ All major bots allowed (3 added: ChatGPT-User, OAI-SearchBot, ClaudeBot) | 2026-04-03 |
 | 4 | /llms.txt — comprehensive content | ✅ Updated (808B→1.7KB, For AI Assistants + dialect URLs) | 2026-04-03 |
 | 5 | BreadcrumbList on dialect landing pages | ✅ Fixed in PR #1283 (2026-04-08) | 2026-04-08 |
@@ -57,6 +57,25 @@
 ```
 
 ### Experiments
+
+## Run: 2026-04-13 — Full Site Audit — Technical SEO Auditor
+**Hypothesis:** Movie/TVSeries JSON-LD schema was still missing from SSR HTML (live-verified: zero JSON-LD on content pages); fixing <Script> → <script> will restore schema visibility to all AI + search crawlers.
+**Action:** PR #1313 (https://github.com/vatsanatech/stage-webapp/pull/1313)
+- Fixed `<Script>` (next/script, deferred afterInteractive) → native `<script>` for Movie/TVSeries JSON-LD in content detail page — SAME root cause as 2026-04-07 run, fix was reverted by subsequent PRs
+- Added sr-only H1 (`contentDetail.title`) to content detail pages — was completely absent
+- Removed `/en/login` from `links/sitemap.tsx` (blocked in robots.txt — conflicting crawl signals)
+- Fixed homepage title: added Gujarati ("Watch Haryanvi, Rajasthani & Bhojpuri" → "...Bhojpuri & Gujarati")
+- Standardized content count: homepage description "1,000+" → "2,000+" (consistent with Organization schema + llms.txt)
+- Fixed homepage hreflang: added en-IN and hi-IN alternates (only x-default was present)
+**Live audit findings (2026-04-13):**
+- FAQPage schema: NOW rendering on all dialect landing pages ✅ (ISR cache resolved since Apr-08)
+- robots.txt AI bots: all allowed ✅ | llms.txt: present ✅ | BreadcrumbList: present ✅
+- Movie/TVSeries schema on content pages: ❌ ZERO JSON-LD (live-verified) — critical finding
+- H1 on content pages: ❌ absent — fixed
+**Result:** PR #1313 raised. Slack sent.
+**Keep / Discard:** Keep — <Script> for JSON-LD is confirmed failure pattern (seen twice now). Always use native <script>.
+**Confidence delta:** next/script for JSON-LD = absolute failure (confidence 1.0 avoid). FAQPage ISR cache self-resolves over time (+0.2).
+
 ## Run: 2026-04-13 — Weekly Keywords — Keyword Competitor Analyst
 **Hypothesis:** Adding ~29 transactional + navigational keywords from GSC rising/new data (7023 tracked, 971 rising, 2023 new) will improve click-through for rising Haryanvi, Rajasthani, Bhojpuri, and Gujarati content queries — with particular focus on desi web series generic demand and namak web series rising OTT property.
 **Action:** PR #1312 (https://github.com/vatsanatech/stage-webapp/pull/1312) — updated src/config/seo-keywords.ts only
@@ -132,7 +151,7 @@
 
 ## Run: 2026-04-09 — Weekly Keywords — Keyword Competitor Analyst
 **Hypothesis:** Adding 33 transactional + navigational keywords from GSC rising/new data (7086 tracked, 956 rising, 2086 new) will improve click-through for fast-rising Bhojpuri content queries and consolidate Haryanvi saanwari/kachi umar series traction.
-**Action:** PR #1304 (https://github.com/vatsanatech/stage-webapp/pull/1304) — updated `src/config/seo-keywords.ts` only
+**Action:** PR #1304 (https://github.com/vatsanatech/stage-webapp/pull/1304) ��� updated `src/config/seo-keywords.ts` only
 - Added 33 keywords: 10 Haryanvi, 14 Bhojpuri, 2 Rajasthani + long-tail variants
 - Top transactional additions: saanwari web series (+112%, 189 clicks), jholachhap movie bhojpuri (+21.6%, 152 clicks), ladli chhathi mai ke bhojpuri film (+883%), naat 2026 movie (+500%), naat bhojpuri movie watch online (+1700%)
 - Bhojpuri dialect showed strongest growth this week: 5 new keywords crossing 30+ clicks
