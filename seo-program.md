@@ -57,6 +57,19 @@
 ```
 
 ### Experiments
+## Run: 2026-04-13 — Weekly Keywords — Keyword Competitor Analyst
+**Hypothesis:** Adding ~29 transactional + navigational keywords from GSC rising/new data (7023 tracked, 971 rising, 2023 new) will improve click-through for rising Haryanvi, Rajasthani, Bhojpuri, and Gujarati content queries — with particular focus on desi web series generic demand and namak web series rising OTT property.
+**Action:** PR #1312 (https://github.com/vatsanatech/stage-webapp/pull/1312) — updated src/config/seo-keywords.ts only
+- Added ~29 keywords: 6 Haryanvi movies, 10 Haryanvi shows, 5 Rajasthani movies, 2 Rajasthani shows, 5 Bhojpuri movies, 1 Bhojpuri brand, 1 Gujarati movie + 5 long-tail variants
+- Top transactional additions: desi web series (+72.9%, 842 clicks), naate movie (+25.5%, 123 clicks), sawari movie (+51%, 112 clicks), naat rajasthani film (+129%, 101 clicks), naate movie bhojpuri (+57%, 99 clicks)
+- Haryanvi shows gained most new entries this run: 10 keywords including generic desi web series (highest volume keyword added this week)
+- namak web series emerging as new rising property — added with 2 long-tail variants
+- naate rajasthani movie ott platform pattern confirmed (725% rise, 33 clicks) — ott platform variants continue to be a strong Rajasthani signal
+- Skipped: ~15 adult/vulgar keywords across all dialects, piracy telegram links, filmywap.in
+**Result:** PR raised (#1312). Slack notification sent to Aditya.
+**Keep / Discard:** Keep — transactional keyword expansion directly tied to rising GSC data.
+**Confidence delta:** desi web series generic OTT demand rising on Stage.in — add non-dialect-specific variants to haryanvi shows each run (+0.1 confidence)
+
 
 ## Run: 2026-04-11 — Weekly Keywords — Keyword Competitor Analyst
 **Hypothesis:** Adding 25 transactional + navigational keywords from GSC rising/new data (7073 tracked, 944 rising, 2073 new) will improve click-through for rising Rajasthani, Bhojpuri, and Gujarati content queries.
@@ -247,4 +260,4 @@ After every run, update the relevant sections:
 
 ---
 
-*Last updated: 2026-04-11 — Weekly Keywords run by Keyword Competitor Analyst*
+*Last updated: 2026-04-13 — Weekly Keywords run by Keyword Competitor Analyst*
