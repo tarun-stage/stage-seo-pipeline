@@ -58,6 +58,19 @@
 
 ### Experiments
 
+## Run: 2026-04-15 — Weekly Keywords — Keyword Competitor Analyst
+**Hypothesis:** Adding ~15 transactional keywords from GSC rising/new data (6999 tracked, 974 rising, 1999 new) will improve click-through for rising saanwari/sawari/savaari web series variants and generic nate web series queries, with incremental Rajasthani/Bhojpuri additions.
+**Action:** PR #1319 (https://github.com/vatsanatech/stage-webapp/pull/1319) — updated `src/config/seo-keywords.ts` only
+- Added 15 keywords (13 unique + 2 long-tail variants): 1 Haryanvi movie, 9 Haryanvi shows, 1 Rajasthani movie, 2 Rajasthani shows, 1 Bhojpuri show
+- Top transactional additions: sawari web series stage (+52%, 99 clicks), nate web series video (+65%, 89 clicks), desi web (+92.5%, 77 clicks), savaari web series online watch (+115%, 56 clicks), nate web series watch online (+188%, 49 clicks), nate series download (+246%, 45 clicks), nate web series rajasthan (+2050%, 43 clicks)
+- Haryanvi shows gained most new entries: saanwari/sawari/savaari web series variants continue to generate strong click volume — multiple spelling variants all rising
+- `naat bhojpuri web series` — new emerging term, added to bhojpuri shows
+- Skipped: ~20 adult/vulgar keywords, piracy domains, competitor brand (ullu), keywords already in pending PRs #1311 and #1312
+- NOTE: PRs #1311 and #1312 were open but not merged — this PR builds on the same 2026-04-09 base
+**Result:** PR raised (#1319). Slack notification sent to Aditya.
+**Keep / Discard:** Keep — transactional keyword expansion directly tied to rising GSC data.
+**Confidence delta:** saanwari/sawari/savaari web series variants (multiple spellings all rising) → confirmed pattern, add all spelling variants each run (+0.1 confidence)
+
 ## Run: 2026-04-13 — Full Site Audit — Technical SEO Auditor
 **Hypothesis:** Movie/TVSeries JSON-LD schema was still missing from SSR HTML (live-verified: zero JSON-LD on content pages); fixing <Script> → <script> will restore schema visibility to all AI + search crawlers.
 **Action:** PR #1313 (https://github.com/vatsanatech/stage-webapp/pull/1313)
@@ -279,4 +292,4 @@ After every run, update the relevant sections:
 
 ---
 
-*Last updated: 2026-04-13 — Weekly Keywords run by Keyword Competitor Analyst*
+*Last updated: 2026-04-15 — Weekly Keywords run by Keyword Competitor Analyst*
