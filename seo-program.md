@@ -27,11 +27,11 @@
 
 | Priority | Task | Status | Last Updated |
 |----------|------|--------|--------------|
-| 1 | Movie/TVSeries schema in SSR HTML on content detail pages | ⚠️ PR #1320 open (fix re-applied 2026-04-15 — supersedes #1313) | 2026-04-15 |
+| 1 | Movie/TVSeries schema in SSR HTML on content detail pages | ⚠️ PR #1352 open (4th fix attempt — #1271 #1313 #1320 all unmerged) | 2026-04-17 |
 | 2 | FAQPage schema on dialect landing pages | ✅ Now rendering in live site (ISR cache resolved) | 2026-04-13 |
 | 3 | robots.txt — verify AI bots are allowed | ✅ All major bots allowed (3 added: ChatGPT-User, OAI-SearchBot, ClaudeBot) | 2026-04-03 |
 | 4 | /llms.txt — comprehensive content | ✅ Updated (808B→1.7KB, For AI Assistants + dialect URLs) | 2026-04-03 |
-| 5 | BreadcrumbList on dialect landing pages | ⚠️ Re-fixed in PR #1320 (2026-04-15) — PR #1283 not merged, main still missing it | 2026-04-15 |
+| 5 | BreadcrumbList on dialect landing pages | ⚠️ Re-fixed in PR #1352 (2026-04-17) — PRs #1283 and #1320 not merged | 2026-04-17 |
 | 6 | Organization + WebSite schema on homepage | ✅ Present (getHomePageJsonLd + generateWebSiteSchema) | 2026-04-07 |
 | 7 | Content freshness — dateModified in JSON-LD | ⚠️ Unverified | 2026-04-01 |
 | 8 | Hreflang tags (hi ↔ en) | ✅ Present on all dialect pages (3 tags: en-IN, hi-IN, x-default) | 2026-04-07 |
@@ -57,6 +57,28 @@
 ```
 
 ### Experiments
+
+## Run: 2026-04-17 — Full Site Audit — Technical SEO Auditor
+**Hypothesis:** Movie/TVSeries JSON-LD still missing from SSR HTML (live-verified: zero JSON-LD on /en/haryanvi/movie/* pages); BreadcrumbList still absent on dialect landing pages; all previous fix PRs (#1271, #1313, #1320) were never merged.
+**Action:** PR #1352 (https://github.com/vatsanatech/stage-webapp/pull/1352) — 4th application of the same core fixes
+- Fixed `<Script>` → native `<script>` for Movie/TVSeries JSON-LD (4th time — PRs #1271, #1313, #1320 unmerged)
+- Added sr-only H1 (`contentDetail.title`) to content detail pages
+- Added BreadcrumbList schema to dialect landing pages (from current main, re-applying PR #1283 + #1320 changes)
+- Removed `/en/login` from links sitemap (robots.txt conflict)
+- Fixed homepage title: added Gujarati
+- Fixed content count: 1,000+ → 2,000+
+- Fixed homepage hreflang: added en-IN + hi-IN
+**Live audit findings (2026-04-17):**
+- Movie/TVSeries schema on content pages: ❌ ZERO JSON-LD (confirmed again, 3rd consecutive audit)
+- BreadcrumbList on /en/haryanvi dialect homepage: ❌ absent
+- FAQPage on dialect pages: ✅ rendering
+- Organization + WebSite on homepage: ✅ present
+- BreadcrumbList on /movies + /shows listing pages: ✅ present
+- robots.txt AI bots: all allowed ✅ | llms.txt: present ✅
+**Result:** PR #1352 raised. Slack sent. STRONG escalation note: 4 consecutive PRs with the same fix unmerged — each audit cycle costs budget without improving the live site.
+**Keep / Discard:** Keep — same critical fix. Issue is merge cadence, not the fix itself.
+**Confidence delta:** Movie schema fix confirmed correct each run. Problem is purely process: PRs not being reviewed/merged (+0.0 to confidence in fix, -0.1 confidence in PR merge cadence).
+
 
 ## Run: 2026-04-17 — Weekly Keywords — Keyword Competitor Analyst
 **Hypothesis:** Adding ~33 transactional + navigational keywords from GSC rising/new data (6983 tracked, 966 rising, 1983 new) will improve click-through for rising sawari/savaari web series variants, nate series variants, and expand Rajasthani/Bhojpuri/Gujarati coverage.
@@ -322,4 +344,4 @@ After every run, update the relevant sections:
 
 ---
 
-*Last updated: 2026-04-17 — Weekly Keywords run by Keyword Competitor Analyst*
+*Last updated: 2026-04-17 — Full Site Audit run by Technical SEO Auditor*
