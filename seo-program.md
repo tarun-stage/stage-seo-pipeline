@@ -58,6 +58,20 @@
 
 ### Experiments
 
+## Run: 2026-04-17 — Weekly Keywords — Keyword Competitor Analyst
+**Hypothesis:** Adding ~33 transactional + navigational keywords from GSC rising/new data (6983 tracked, 966 rising, 1983 new) will improve click-through for rising sawari/savaari web series variants, nate series variants, and expand Rajasthani/Bhojpuri/Gujarati coverage.
+**Action:** PR #1349 (https://github.com/vatsanatech/stage-webapp/pull/1349) — updated `src/config/seo-keywords.ts` only
+- Added 33 keywords: 1 Haryanvi brand, 5 Haryanvi movies, 11 Haryanvi shows, 4 Rajasthani movies, 6 Rajasthani shows, 2 Bhojpuri movies, 1 Bhojpuri show, 1 Bhojpuri brand, 1 Gujarati movie
+- Top transactional additions: sawari movie (+141%, 145 clicks), नाते web series (+44%, 225 clicks), nate web series video (+111%, 110 clicks), savaari web series online watch (+147%, 57 clicks), nate web series watch online (+278%, 53 clicks), nate series download (+341%, 53 clicks), nate web series rajasthan (+2650%, 55 clicks)
+- Haryanvi shows gained most new entries: nate series variants continue to generate high click volume across watch/download/stream intents
+- naate full movie bhojpuri emerging as strong bhojpuri query (+900%, 30 clicks) — bhojpuri full-movie watch queries growing
+- Hindi-script keywords (नाते web series, नाते movie, नाते राजस्थानी फुल मूवी) included — Hindi-script queries for regional content rising consistently
+- Skipped: ~25 adult/vulgar keywords (Rajasthani, Gujarati, Hindi desi categories), filmyfly piracy domain association
+- NOTE: PRs #1311, #1312, #1319 still unmerged — this PR is based on same 2026-04-09 main branch
+**Result:** PR raised (#1349). Slack notification sent to Aditya.
+**Keep / Discard:** Keep — transactional keyword expansion directly tied to rising GSC data.
+**Confidence delta:** Hindi-script (Devanagari) keyword variants for regional content consistently rising → add Hindi-script variants for each major title each run (+0.1 confidence); nate web series rajasthan vs rajasthani (different spellings) both rank well — add both variants (+0.1 confidence)
+
 ## Run: 2026-04-15 — Weekly Keywords — Keyword Competitor Analyst
 **Hypothesis:** Adding ~15 transactional keywords from GSC rising/new data (6999 tracked, 974 rising, 1999 new) will improve click-through for rising saanwari/sawari/savaari web series variants and generic nate web series queries, with incremental Rajasthani/Bhojpuri additions.
 **Action:** PR #1319 (https://github.com/vatsanatech/stage-webapp/pull/1319) — updated `src/config/seo-keywords.ts` only
@@ -308,4 +322,4 @@ After every run, update the relevant sections:
 
 ---
 
-*Last updated: 2026-04-15 — Schema Audit run by Technical SEO Auditor*
+*Last updated: 2026-04-17 — Weekly Keywords run by Keyword Competitor Analyst*
