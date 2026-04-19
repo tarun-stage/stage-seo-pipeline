@@ -58,6 +58,19 @@
 
 ### Experiments
 
+## Run: 2026-04-19 — Weekly Keywords — Keyword Competitor Analyst
+**Hypothesis:** Adding ~7 transactional + navigational keywords from GSC rising/new data (6947 tracked, 931 rising, 1947 new) will improve click-through for rising naate web series stage variants, sanwari/sawari spelling variants, and naat rajasthani film queries.
+**Action:** PR #1357 (https://github.com/vatsanatech/stage-webapp/pull/1357) — updated `src/config/seo-keywords.ts` only
+- Added 7 keywords: 1 Haryanvi movie, 3 Haryanvi shows, 2 Rajasthani movies, 1 global BRAND_KEYWORDS
+- Top additions: naate web series stage (+89%, 195 clicks), sanwari movie (+41%, 170 clicks — spelling variant), naat rajasthani film (+355%, 155 clicks), nate web series cast (+252%, 67 clicks), stage app login (+43%, 100 clicks)
+- Small batch this week: majority of rising/new keywords were adult/vulgar (skipped ~25) or already present in the file
+- Word-order variant pattern confirmed: "naate web series stage" vs "naate stage web series" are distinct GSC queries — both worth tracking
+- Rajasthani film queries (naat rajasthani film, naat rajasthani film watch online) emerging as standalone high-volume terms separate from movie/series distinctions
+- Skipped: ~25 adult/vulgar keywords across rajasthani, gujarati, and generic desi categories; filmyfly piracy domain association
+**Result:** PR raised (#1357). Slack notification sent to Aditya.
+**Keep / Discard:** Keep — transactional keyword expansion directly tied to rising GSC data.
+**Confidence delta:** Word-order variants for same query (naate stage web series vs naate web series stage) both rank independently → add both orders for high-volume series keywords (+0.1 confidence); Gujarati rising data this week dominated by adult content — very low actionable signal this cycle.
+
 ## Run: 2026-04-17 — Full Site Audit — Technical SEO Auditor
 **Hypothesis:** Movie/TVSeries JSON-LD still missing from SSR HTML (live-verified: zero JSON-LD on /en/haryanvi/movie/* pages); BreadcrumbList still absent on dialect landing pages; all previous fix PRs (#1271, #1313, #1320) were never merged.
 **Action:** PR #1352 (https://github.com/vatsanatech/stage-webapp/pull/1352) — 4th application of the same core fixes
@@ -344,4 +357,4 @@ After every run, update the relevant sections:
 
 ---
 
-*Last updated: 2026-04-17 — Full Site Audit run by Technical SEO Auditor*
+*Last updated: 2026-04-19 — Weekly Keywords run by Keyword Competitor Analyst*
