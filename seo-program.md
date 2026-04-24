@@ -27,11 +27,11 @@
 
 | Priority | Task | Status | Last Updated |
 |----------|------|--------|--------------|
-| 1 | Movie/TVSeries schema in SSR HTML on content detail pages | ⚠️ PR #1352 open (4th fix attempt — #1271 #1313 #1320 all unmerged) | 2026-04-17 |
+| 1 | Movie/TVSeries schema in SSR HTML on content detail pages | ⚠️ PR #1399 open (5th fix attempt — #1271 #1313 #1320 #1352 all unmerged) | 2026-04-24 |
 | 2 | FAQPage schema on dialect landing pages | ✅ Now rendering in live site (ISR cache resolved) | 2026-04-13 |
 | 3 | robots.txt — verify AI bots are allowed | ✅ All major bots allowed (3 added: ChatGPT-User, OAI-SearchBot, ClaudeBot) | 2026-04-03 |
 | 4 | /llms.txt — comprehensive content | ✅ Updated (808B→1.7KB, For AI Assistants + dialect URLs) | 2026-04-03 |
-| 5 | BreadcrumbList on dialect landing pages | ⚠️ Re-fixed in PR #1352 (2026-04-17) — PRs #1283 and #1320 not merged | 2026-04-17 |
+| 5 | BreadcrumbList on dialect landing pages | ⚠️ Re-fixed in PR #1399 (2026-04-24) — PRs #1283 #1320 #1352 all unmerged | 2026-04-24 |
 | 6 | Organization + WebSite schema on homepage | ✅ Present (getHomePageJsonLd + generateWebSiteSchema) | 2026-04-07 |
 | 7 | Content freshness — dateModified in JSON-LD | ⚠️ Unverified | 2026-04-01 |
 | 8 | Hreflang tags (hi ↔ en) | ✅ Present on all dialect pages (3 tags: en-IN, hi-IN, x-default) | 2026-04-07 |
@@ -57,6 +57,25 @@
 ```
 
 ### Experiments
+
+## Run: 2026-04-24 — Full Site Audit — Technical SEO Auditor
+**Hypothesis:** Movie/TVSeries JSON-LD still missing from SSR HTML (live-verified: zero JSON-LD on /en/haryanvi/movie/* pages); BreadcrumbList still absent on dialect landing pages; all previous fix PRs (#1271, #1313, #1320, #1352) were never merged.
+**Action:** PR #1399 (https://github.com/vatsanatech/stage-webapp/pull/1399) — 5th application of the same core fixes
+- Fixed `<Script>` → native `<script>` for Movie/TVSeries JSON-LD in `src/app/[lang]/[dialect]/[contentType]/[slug]/page.tsx`
+- Added BreadcrumbList schema to dialect landing pages in `src/app/[lang]/[dialect]/page.tsx` (Home → Dialect breadcrumb)
+**Live audit findings (2026-04-24):**
+- Movie/TVSeries schema on content pages: ❌ ZERO JSON-LD (5th consecutive audit — PRs #1271, #1313, #1320, #1352 unmerged)
+- BreadcrumbList on dialect landing pages (/en/haryanvi, /en/bhojpuri, /en/gujarati, /en/rajasthani): ❌ absent
+- FAQPage on all dialect pages: ✅ rendering (Organization, WebSite, FAQPage all present)
+- BreadcrumbList on /movies + /shows listing pages: ✅ present
+- robots.txt AI bots: all allowed ✅ (GPTBot, ChatGPT-User, OAI-SearchBot, Claude-Web, ClaudeBot, anthropic-ai, PerplexityBot, Google-Extended, Applebot-Extended, YouBot)
+- llms.txt: ✅ 200 OK, comprehensive content (~1.7KB)
+- Organization + WebSite on homepage: ✅ present
+- dateModified in MovieSchema: ✅ present in schema.utils.ts (conditional on data availability)
+- WatchAction in VideoObject: ✅ present in schema.utils.ts
+**Result:** PR #1399 raised. Slack sent with escalation note. CRITICAL: 5 consecutive PRs with same fix, none merged — PR merge cadence is blocking all schema improvements.
+**Keep / Discard:** Keep — native `<script>` for JSON-LD is confirmed correct. Fix is not the problem; merge cadence is.
+**Confidence delta:** PR merge cadence for SEO fixes is critically broken — zero SEO schema PRs merged in 5 audit cycles (-0.1 confidence in process; fix confidence remains 1.0).
 
 ## Run: 2026-04-19 — Weekly Keywords — Keyword Competitor Analyst
 **Hypothesis:** Adding ~7 transactional + navigational keywords from GSC rising/new data (6947 tracked, 931 rising, 1947 new) will improve click-through for rising naate web series stage variants, sanwari/sawari spelling variants, and naat rajasthani film queries.
@@ -333,11 +352,11 @@
 | AI citation rate (Perplexity) | unknown | 2026-04-01 | — |
 | AI citation rate (ChatGPT) | unknown | 2026-04-01 | — |
 | Google organic sessions | unknown | 2026-04-01 | — |
-| Pages with Movie/TVSeries schema (SSR) | 0 → pending PR #1320 | 2026-04-15 | ⚠️ PR open (fix applied 3rd time) |
-| Pages with FAQPage schema | 4 dialect landing pages rendering in live site ✅ | 2026-04-15 | ✅ Confirmed live |
-| Pages with BreadcrumbList | /movies + /shows (live ✅); dialect homepage pending PR #1320 | 2026-04-15 | ⚠️ PR open |
-| /llms.txt word count | 808 bytes | 2026-04-03 | ↑ Updated to ~1.7KB |
-| robots.txt — AI bots blocked | 0 (ChatGPT-User, OAI-SearchBot, ClaudeBot added explicitly) | 2026-04-03 | ✅ Fixed |
+| Pages with Movie/TVSeries schema (SSR) | 0 → pending PR #1399 | 2026-04-24 | ⚠️ PR open (fix applied 5th time — all previous unmerged) |
+| Pages with FAQPage schema | 4 dialect landing pages rendering in live site ✅ | 2026-04-24 | ✅ Confirmed live |
+| Pages with BreadcrumbList | /movies + /shows (live ✅); dialect homepage pending PR #1399 | 2026-04-24 | ⚠️ PR open (5th attempt) |
+| /llms.txt word count | 808 bytes | 2026-04-03 | ↑ Updated to ~1.7KB ✅ |
+| robots.txt — AI bots blocked | 0 (ChatGPT-User, OAI-SearchBot, ClaudeBot, Claude-Web, YouBot, Applebot-Extended explicitly allowed) | 2026-04-24 | ✅ Confirmed all allowed |
 
 ---
 
@@ -357,4 +376,4 @@ After every run, update the relevant sections:
 
 ---
 
-*Last updated: 2026-04-19 — Weekly Keywords run by Keyword Competitor Analyst*
+*Last updated: 2026-04-24 — Full Site Audit run by Technical SEO Auditor*
