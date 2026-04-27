@@ -21,7 +21,7 @@ on:
 jobs:
   push-android:
     name: Push Android Metadata to Play Store
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     if: |
       github.event_name == 'workflow_dispatch' && (inputs.platform == 'android' || inputs.platform == 'both') ||
       github.event_name == 'push'
@@ -74,7 +74,7 @@ jobs:
 
   push-ios:
     name: Push iOS Metadata to App Store
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     if: |
       github.event_name == 'workflow_dispatch' && (inputs.platform == 'ios' || inputs.platform == 'both')
     steps:

@@ -7,7 +7,7 @@ on:
 
 jobs:
   content-decay:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     steps:
       - name: Setup Node.js
         uses: actions/setup-node@v4

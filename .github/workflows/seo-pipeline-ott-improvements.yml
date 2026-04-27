@@ -11,7 +11,7 @@ on:
 jobs:
   create-improvement-task:
     name: Create Paperclip Task & Wake Agent
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     timeout-minutes: 5
 
     steps:

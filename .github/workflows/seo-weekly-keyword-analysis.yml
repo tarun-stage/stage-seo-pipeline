@@ -8,7 +8,7 @@ on:
 jobs:
   keyword-analysis:
     name: Analyze Keywords & Trigger Agent
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     timeout-minutes: 15
 
     steps:

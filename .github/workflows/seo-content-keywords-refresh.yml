@@ -8,7 +8,7 @@ on:
 jobs:
   content-keywords-refresh:
     name: Refresh Content SEO Keywords
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     timeout-minutes: 5
 
     steps:

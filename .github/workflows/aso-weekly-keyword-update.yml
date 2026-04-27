@@ -8,7 +8,7 @@ on:
 jobs:
   trigger-keyword-update:
     name: Assign Keyword Update Task to ASO CEO
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
 
     steps:
       - name: Create Paperclip issue for CEO
