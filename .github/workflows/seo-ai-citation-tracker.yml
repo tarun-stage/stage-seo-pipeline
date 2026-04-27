@@ -46,7 +46,7 @@ jobs:
           const GOOGLE_API_KEY = process.env.GOOGLE_SEARCH_API_KEY;
           const GOOGLE_CX = process.env.GOOGLE_SEARCH_CX;
           const PERPLEXITY_API_KEY = process.env.PERPLEXITY_API_KEY;
-          const PAPERCLIP_API_URL = process.env.PAPERCLIP_API_URL || 'http://164.52.223.6:3100';
+          const PAPERCLIP_API_URL = process.env.PAPERCLIP_API_URL || 'http://101.53.145.175:3100';
 
           function mentionsStage(text) {
             const lower = (text || '').toLowerCase();

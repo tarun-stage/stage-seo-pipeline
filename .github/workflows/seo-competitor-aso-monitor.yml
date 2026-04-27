@@ -14,6 +14,7 @@ jobs:
       - name: Run ASO Competitor Monitor
         env:
           PAPERCLIP_API_KEY: ${{ secrets.PAPERCLIP_API_KEY }}
+          PAPERCLIP_API_URL: ${{ secrets.PAPERCLIP_API_URL }}
           SLACK_WEBHOOK_URL: '${{ secrets.SLACK_WEBHOOK_URL }}'
         run: |
           node << 'EOF'
@@ -21,6 +22,7 @@ jobs:
           const { execSync } = require('child_process');
 
           const PAPERCLIP_API_KEY = process.env.PAPERCLIP_API_KEY;
+          const PAPERCLIP_API_URL = (process.env.PAPERCLIP_API_URL || 'http://101.53.145.175:3100').replace(/\/$/, '');
           const SLACK_WEBHOOK_URL = process.env.SLACK_WEBHOOK_URL;
 
           const ASO_COMPANY_ID = '03319c0f-9679-474a-90e2-7004053fdef2';
@@ -143,7 +145,7 @@ jobs:
             // Simple dedup: we check by searching existing issues
             // Using the Paperclip search endpoint
             try {
-              const searchUrl = `http://164.52.223.6:3100/api/companies/${ASO_COMPANY_ID}/issues?search=${encodeURIComponent(title)}&limit=5`;
+              const searchUrl = `${PAPERCLIP_API_URL}/api/companies/${ASO_COMPANY_ID}/issues?search=${encodeURIComponent(title)}&limit=5`;
               const result = await httpsGet(searchUrl, {
                 'Authorization': `Bearer ${PAPERCLIP_API_KEY}`,
               });
@@ -159,7 +161,7 @@ jobs:
           }
 
           async function createPaperclipIssue(title, description) {
-            const url = `http://164.52.223.6:3100/api/companies/${ASO_COMPANY_ID}/issues`;
+            const url = `${PAPERCLIP_API_URL}/api/companies/${ASO_COMPANY_ID}/issues`;
             const body = { title, description, status: 'todo', priority: 'high', assigneeAgentId: ASO_CEO_AGENT_ID };
             const result = await httpsPost(url, body, {
               'Authorization': `Bearer ${PAPERCLIP_API_KEY}`,

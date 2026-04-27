@@ -15,6 +15,7 @@ jobs:
         env:
           PAPERCLIP_API_KEY: ${{ secrets.PAPERCLIP_API_KEY }}
           PAPERCLIP_ASO_API_KEY: ${{ secrets.PAPERCLIP_ASO_API_KEY }}
+          PAPERCLIP_API_URL: ${{ secrets.PAPERCLIP_API_URL }}
           SLACK_WEBHOOK_URL: '${{ secrets.SLACK_WEBHOOK_URL }}'
         run: |
           node << 'EOF'
@@ -22,6 +23,7 @@ jobs:
 
           const PAPERCLIP_API_KEY = process.env.PAPERCLIP_API_KEY;
           const PAPERCLIP_ASO_API_KEY = process.env.PAPERCLIP_ASO_API_KEY;
+          const PAPERCLIP_API_URL = (process.env.PAPERCLIP_API_URL || 'http://101.53.145.175:3100').replace(/\/$/, '');
           const SLACK_WEBHOOK_URL = process.env.SLACK_WEBHOOK_URL;
 
           const SEO_COMPANY_ID = 'f0a0b0c0-0001-4000-8000-000000000001';
@@ -138,7 +140,7 @@ jobs:
           async function checkDuplicatePaperclipIssue(companyId, title, apiKey) {
             try {
               const searchPath = `/api/companies/${companyId}/issues?search=${encodeURIComponent(title)}&limit=5`;
-              const result = await httpsGet(`http://164.52.223.6:3100${searchPath}`, {
+              const result = await httpsGet(`${PAPERCLIP_API_URL}${searchPath}`, {
                 'Authorization': `Bearer ${apiKey}`,
               });
               if (result.statusCode === 200) {
