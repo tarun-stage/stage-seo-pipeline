@@ -91,7 +91,11 @@ jobs:
             const history = loadHistory();
             const todayKey = new Date().toISOString().split('T')[0];
             const lastWeekKey = new Date(now - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-            const lastWeekAvg = history[lastWeekKey] || null;
+            let lastWeekAvg = history[lastWeekKey] || null;
+            if (!lastWeekAvg) {
+              const prev = Object.keys(history).filter(k => k < todayKey).sort().pop();
+              if (prev) lastWeekAvg = history[prev];
+            }
 
             // Save today's avg to history
             if (thisWeekAvg) {
@@ -108,7 +112,7 @@ jobs:
             const hasDrop = drop !== null && parseFloat(drop) > 0.1;
 
             const trendLine = !thisWeekAvg ? 'Insufficient data'
-              : !lastWeekAvg ? `This week: ${thisWeekAvg} ⭐ (no prior week data yet — will populate from tomorrow)`
+              : !lastWeekAvg ? `This week: ${thisWeekAvg} ⭐ (building history — no prior data yet)`
               : hasDrop ? `⬇️ DROP ${drop} stars: ${lastWeekAvg} → ${thisWeekAvg}`
               : parseFloat(drop) < -0.1 ? `⬆️ IMPROVED ${Math.abs(drop)} stars: ${lastWeekAvg} → ${thisWeekAvg}`
               : `➡️ Stable: ${thisWeekAvg} ⭐`;
